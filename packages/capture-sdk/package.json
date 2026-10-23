@@ -1,0 +1,17 @@
+{
+  "name": "@rls-doctor/capture-sdk",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "description": "Opt-in sanitized Supabase REST GET metadata capture for Node.js",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint src test"
+  }
+}

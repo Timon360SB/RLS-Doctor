@@ -1,0 +1,10 @@
+version: 1
+name: missing_select_grant
+request:
+  resource: no_grant_documents
+identity:
+  type: authenticated
+  token_env: RLS_DOCTOR_TEST_TOKEN
+expect:
+  status: 403
+  error_class: permission

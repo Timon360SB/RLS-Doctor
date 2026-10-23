@@ -1,0 +1,110 @@
+# RLS Doctor Capture SDK
+
+Node.js 22/24 SDK for opt-in Supabase REST GET metadata. Capture is disabled by
+default. There is no telemetry service, global patch, token decoding, request
+retransmission, or implicit network destination.
+
+```ts
+import { createCaptureFetch, createJsonFileSink } from '@rls-doctor/capture-sdk';
+import { createClient } from '@supabase/supabase-js';
+
+const captureFetch = createCaptureFetch(fetch, {
+  enabled: true,
+  allowedOrigin: 'http://127.0.0.1:54321',
+  resources: ['documents'],
+  maxEvents: 100,
+  maxDurationMs: 300_000,
+  sink: createJsonFileSink({ directory: '.rls-doctor/captures' }),
+  onDiagnosticError: code => console.error(code),
+});
+const client = createClient(localUrl, localAnonKey, {
+  global: { fetch: captureFetch },
+});
+// Later: disable capture, including still-pending results.
+captureFetch.stop();
+```
+
+Supply application credentials from your local environment; never put them in
+diagnostic files. The example identifiers `localUrl` and `localAnonKey` refer to
+your own application configuration.
+
+## Public API
+
+`createCaptureFetch(fetchImpl, options?) -> CaptureFetch` wraps the user-supplied
+Fetch implementation. `CaptureFetch` has the standard Fetch signature plus
+`stop(): void`. It passes the original arguments, argument count, and receiver
+to Fetch and returns its original Promise. It returns the original Response
+without reading or cloning its body. Original thrown/rejected errors retain
+their identity. The wrapper does not change request headers, URLs, methods,
+bodies, auth, status, or retry behavior.
+
+`CaptureOptions`:
+
+| Field | Behavior |
+| --- | --- |
+| `enabled` | Defaults to `false`. Set explicitly to `true` to capture. |
+| `allowedOrigin` | Required when enabled; exact HTTP(S) origin, with no credentials, path, query or fragment. |
+| `resources` | Required nonempty allowlist of simple table/view names (ASCII identifiers, at most 63 characters). |
+| `sink` | Required when enabled; `(event: DiagnosticEvent) => void \| Promise<void>`. |
+| `onDiagnosticError` | Optional callback receiving only `metadata_failed` or `sink_failed`. Synchronous throws and Promise rejections are isolated. |
+| `maxEvents` | Default 100; positive integer at most 10000. Includes admitted in-flight captures and failed sink attempts. |
+| `maxDurationMs` | Default 300000; positive integer at most 86400000. Both admission and response completion must be within the window. |
+
+Invalid explicit configuration throws a fixed, sanitized `TypeError` when the
+wrapper is created. Runtime diagnostic errors never reject the application's
+Fetch Promise. Async sinks are observed but never awaited; a sink that never
+settles does not delay the original request. As with any in-process callback,
+a sink doing synchronous expensive work or blocking the event loop can delay
+other JavaScript execution. Keep sinks small and asynchronous.
+
+Only exact `/rest/v1/<allowed resource>` paths (optionally ending with `/`) and
+effective method GET are eligible. An `init.method` or `init.headers` replacement
+overrides the corresponding Request input field. RPC, nested paths, encoded
+resource names, URL credentials, other origins, relative URLs, and unsupported
+methods are not captured. Custom header iterables are not consumed for
+diagnostics. URLs over 16384 characters are skipped; at most 256 query
+parameters are inspected and at most 64 filters are recorded.
+
+## Event contract and limits
+
+`DiagnosticEvent` follows the canonical schema in
+`schemas/diagnostic-event-v1.schema.json`. Events contain a random local UUID,
+timestamp, duration, method/API/resource, safe filter column names and supported
+operator names (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `is`), response status,
+optional inferred returned-range length, fixed error kind, and boolean header
+presence. Events are frozen before passing to a sink.
+
+Query values, full URLs, request/response bodies, SQL, header values, cookies,
+tokens, raw errors, and decoded JWT claims are never included. Unsupported
+operators and unsafe column names are omitted. Filters are a partial metadata
+description, so events cannot faithfully replay their source request.
+
+`row_count` is inferred only from a syntactically valid Content-Range header:
+`0-9/100` indicates 10 returned rows, not 100. `*/0` indicates zero; ambiguous,
+missing or invalid ranges yield `null`. The body is never checked against the
+header. Empty results do not prove that RLS filtered a row. Header presence
+does not prove authentication, identity, role, or token validity. HTTP errors
+have `error_kind: 'http'`; rejected Fetch calls have `'network'`, without the
+exception text.
+
+`createJsonFileSink({ directory, maxEvents?, maxBytes? }) -> CaptureSink` writes
+one `<event UUID>.json` per event. Defaults are 100 files and 1048576 bytes;
+maximum configurable limits are 10000 files and 104857600 bytes. Existing
+directory entries count toward the limits. Calls are serialized and admitted
+within bounded per-instance reservations; failed attempts are not retried.
+The sink rebuilds schema fields before writing, discarding extra properties.
+Duplicate filenames are refused. Error strings are fixed and do not echo paths
+or event data. Await the returned Promise if your application needs to confirm
+that a file was persisted.
+
+New POSIX directories use 0700 and files 0600. Existing POSIX sink directories
+with group/other permissions are refused. Windows users must place captures
+under an appropriately private directory ACL. Symlink/junction directory
+components and symlink entries are refused; files use exclusive creation, so
+they are never overwritten. These checks do not protect against a hostile
+process concurrently replacing filesystem components. Use a private, dedicated
+directory, not a shared directory. Multiple concurrent sink instances have
+separate limits and are not a filesystem quota.
+
+Browser support and arbitrary writes are outside v0.1. A custom sink is user
+code: review it before sending even sanitized metadata anywhere.

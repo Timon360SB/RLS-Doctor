@@ -1,0 +1,11 @@
+{
+  "name": "@rls-doctor/example-node-basic",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "capture": "node index.mjs",
+    "event": "node capture-event.mjs"
+  }
+}
