@@ -1,0 +1,16 @@
+{
+  "name": "rls-doctor-monorepo", "version": "0.1.0", "private": true,
+  "packageManager": "pnpm@11.25.0", "engines": {"node": ">=22.12.0"},
+  "scripts": {
+    "build": "pnpm --filter @rls-doctor/capture-sdk build",
+    "typecheck": "pnpm --filter @rls-doctor/capture-sdk typecheck",
+    "test": "pnpm --filter @rls-doctor/capture-sdk test",
+    "lint": "pnpm --filter @rls-doctor/capture-sdk lint"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3", "vitest": "5.0.5", "eslint": "10.13.0",
+    "typescript-eslint": "8.72.0", "@types/node": "24.10.1",
+    "ajv": "8.20.0", "ajv-formats": "3.0.1",
+    "@supabase/supabase-js": "2.118.0"
+  }
+}

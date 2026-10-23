@@ -1,0 +1,114 @@
+name: Checks and local integration
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Node ${{ matrix.node }} / Python ${{ matrix.python }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.25.0 --activate
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          version: "0.13.5"
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+          cache-dependency-glob: python/uv.lock
+      - name: Install locked dependencies
+        run: |
+          pnpm install --frozen-lockfile
+          uv sync --project python --frozen --group dev
+      - name: TypeScript build, types, lint and tests
+        run: |
+          pnpm build
+          pnpm typecheck
+          pnpm lint
+          pnpm test
+      - name: Python formatting and lint
+        run: |
+          uv run --project python ruff format --check python scripts
+          uv run --project python ruff check python scripts
+      - name: Python strict type check
+        working-directory: python
+        run: uv run mypy
+      - name: Python unit, security and shared-contract tests
+        run: uv run --project python pytest python/tests -m 'not integration'
+      - name: Build and execute installed Python wheel
+        run: |
+          uv build --project python --out-dir .package-check
+          uv venv .package-check/venv
+          uv pip install --python .package-check/venv/bin/python .package-check/*.whl
+          .package-check/venv/bin/rls-doctor --help
+          node examples/node-basic/capture-event.mjs > .package-check/event.json
+          .package-check/venv/bin/rls-doctor validate .package-check/event.json --format json
+
+  local-integration:
+    name: Actual local Supabase and PostgreSQL
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      RLS_DOCTOR_ALLOW_FIXTURE_SETUP: "1"
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: "22"
+      - name: Install pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.25.0 --activate
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          version: "0.13.5"
+          python-version: "3.12"
+      - uses: supabase/setup-cli@v2.1.2
+        with:
+          version: "2.121.0"
+      - name: Install locked dependencies and build
+        run: |
+          pnpm install --frozen-lockfile
+          uv sync --project python --frozen --group dev
+          pnpm build
+      - name: Start disposable local fixtures
+        # Startup may print local credentials. Never save or emit that output.
+        run: |
+          if ! supabase start --workdir fixtures >/dev/null 2>&1; then
+            echo "Local fixture startup failed; raw logs suppressed because they may contain credentials."
+            exit 1
+          fi
+      - name: Real database integration and Auth/REST end-to-end checks
+        # Status secrets travel through stdin only; no secret-bearing status file.
+        run: |
+          supabase status --workdir fixtures --output json 2>/dev/null |
+            uv run --project python python scripts/e2e.py --status-stdin
+      - name: Stop disposable local stack
+        if: always()
+        run: supabase stop --workdir fixtures >/dev/null 2>&1

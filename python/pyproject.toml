@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling==1.32.4"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rls-doctor"
+version = "0.1.0"
+description = "Local request replay and evidence-based authorization diagnostics for Supabase"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+  "typer==0.27.3", "pydantic==2.14.1", "httpx==0.28.1",
+  "psycopg[binary]==3.3.6", "rich==15.0.0", "PyJWT==2.15.1",
+  "cryptography==50.0.2", "jsonschema==4.26.0", "PyYAML==6.0.3"
+]
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "ruff==0.17.2", "mypy==2.4.0", "types-PyYAML==6.0.12.20260906", "types-jsonschema==4.26.0.20261006"]
+
+[project.scripts]
+rls-doctor = "rls_doctor.cli.main:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rls_doctor"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: requires explicitly approved real local PostgreSQL or Supabase"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["rls_doctor"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["jsonschema.*"]
+ignore_missing_imports = true

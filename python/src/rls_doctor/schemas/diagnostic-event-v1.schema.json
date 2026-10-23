@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Timon360SB/RLS-Doctor/schemas/diagnostic-event-v1.schema.json",
+  "title": "RLS Doctor diagnostic event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "timestamp", "request", "response", "context", "duration_ms"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "event_id": {"type": "string", "format": "uuid"},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "duration_ms": {"type": "integer", "minimum": 0, "maximum": 86400000},
+    "request": {
+      "type": "object", "additionalProperties": false,
+      "required": ["method", "api", "resource", "filters"],
+      "properties": {
+        "method": {"const": "GET"}, "api": {"const": "rest"},
+        "resource": {"type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9_]{0,62}$"},
+        "filters": {
+          "type": "array", "maxItems": 64,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["column", "operator"],
+            "properties": {
+              "column": {"type": "string", "pattern": "^[a-zA-Z_][a-zA-Z0-9_]{0,62}$"},
+              "operator": {"enum": ["eq", "neq", "gt", "gte", "lt", "lte", "is"]}
+            }
+          }
+        }
+      }
+    },
+    "response": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "row_count", "error_kind"],
+      "properties": {
+        "status": {"type": ["integer", "null"], "minimum": 100, "maximum": 599},
+        "row_count": {"type": ["integer", "null"], "minimum": 0, "maximum": 9007199254740991},
+        "error_kind": {"enum": [null, "http", "network"]}
+      }
+    },
+    "context": {
+      "type": "object", "additionalProperties": false,
+      "required": ["authorization_present", "apikey_present"],
+      "properties": {
+        "authorization_present": {"type": "boolean"},
+        "apikey_present": {"type": "boolean"}
+      }
+    }
+  }
+}

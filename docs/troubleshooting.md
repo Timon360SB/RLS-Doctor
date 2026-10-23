@@ -1,0 +1,22 @@
+# Troubleshooting
+
+| Symptom | Safe next step |
+| --- | --- |
+| LOCAL_APPROVAL_REQUIRED | Review the disposable fixture destination before enabling approved_local. |
+| UNSAFE_ENDPOINT / UNSAFE_DATABASE | Use the explicit numeric loopback origin/host and configured port; remove libpq service/options and URL credentials. |
+| MISSING_CREDENTIAL | Set the named local-test environment credentials in your private shell; never put values in reports. |
+| INVALID_TEST_TOKEN | Obtain a fresh local Auth access token; check local issuer, audience, expiry, signature/key and role. Decoding claims is not verification. |
+| UNKNOWN executed_role | Install the supplied trusted identity probe in the disposable fixture stack. Do not infer a role from headers. |
+| UNKNOWN result_completeness | Request a bounded synthetic dataset; check a consistent Content-Range and the local server row cap. |
+| HTTP 200 with zero rows | Verify fixture existence/ownership and explicit filters before examining applicable policies. This alone does not prove RLS rejection. |
+| Permission error / 42501 | Check schema USAGE and exact table/column grants; a policy cannot replace SQL privileges. Policy functions can also raise errors, so do not overstate the cause. |
+| POSTGRES_INSPECTION_FAILED | Check local service availability, supported server major and catalog permissions. Raw server/DSN error text is intentionally suppressed. |
+| RESOURCE_NOT_ALLOWED | Explicitly approve the intended local resource; do not widen to arbitrary endpoints. |
+| RESPONSE_ENCODING / RESPONSE_LIMIT | Use uncompressed, smaller synthetic responses; do not disable the limits. |
+| Python contract test cannot find SDK dist | Run pnpm build first. |
+| Integration tests skipped | Set explicit disposable DB DSN and fixture setup consent, or use the real Supabase E2E stdin pipeline. A skip is not a pass. |
+
+Sanitized bug reports should include command/version, result code, synthetic
+scenario and fixed diagnostic codes. Exclude tokens, keys, DSNs, query values,
+server error bodies and customer data. Do not enable verbose third-party logs
+around secrets just to obtain additional context.

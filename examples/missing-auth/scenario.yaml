@@ -1,0 +1,10 @@
+version: 1
+name: missing_expected_authorization
+request:
+  resource: documents
+identity:
+  type: anon
+  expected_role: authenticated
+expect:
+  status: 200
+  row_count: 1

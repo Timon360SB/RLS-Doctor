@@ -1,0 +1,16 @@
+version: 1
+name: detect_foreign_row_leak
+request:
+  resource: leaky_documents
+identity:
+  type: authenticated
+  token_env: RLS_DOCTOR_TEST_TOKEN
+expect:
+  status: 200
+  row_count: 1
+  contains:
+    - column: id
+      value: '10000000-0000-4000-8000-000000000001'
+  excludes:
+    - column: id
+      value: '10000000-0000-4000-8000-000000000002'
