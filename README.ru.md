@@ -94,7 +94,6 @@ uv run --project python rls-doctor replay documents.yaml --inspect --format json
 - [Запуск](docs/getting-started.md) и [API SDK](packages/capture-sdk/README.md).
 - [Архитектура](docs/architecture.md), [разработка](docs/development.md), [исследование аналогов](docs/research.md).
 - [Безопасность](docs/security.md), [ограничения](docs/limitations.md), [решение проблем](docs/troubleshooting.md).
-- [Как указать помощь Codex в PR](docs/ai-contributions.ru.md).
 - [Релизы](docs/releases.ru.md), [история изменений](CHANGELOG.md), [оформление GitHub](docs/github-appearance.ru.md).
 
 Основная техническая документация ведётся на английском.

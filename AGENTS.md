@@ -55,7 +55,7 @@ For schema/API-breaking changes:
 3. Add producer/consumer compatibility tests and migration or explicit rejection behavior.
 4. Get review from both workstreams before merging.
 
-Do not coordinate by assuming that two Codex conversations share state. The Git repository, PRs, issues, and reviewed design documents are the source of truth. Do not overwrite another maintainer's uncommitted work; inspect `git status` before editing. Avoid unrelated edits and destructive Git operations.
+Do not coordinate by assuming that independent work sessions share state. The Git repository, PRs, issues, and reviewed design documents are the source of truth. Do not overwrite another maintainer's uncommitted work; inspect `git status` before editing. Avoid unrelated edits and destructive Git operations.
 
 ## Non-negotiable security boundaries
 
