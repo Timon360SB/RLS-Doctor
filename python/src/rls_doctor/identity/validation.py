@@ -45,11 +45,14 @@ def bounded_json(
 def verify_test_token(
     token: str, env: LocalEnvironment, client: httpx.Client, role: str = "authenticated"
 ) -> dict[str, Any]:
-    """Require a local signature, expiration, role and issuer; reject service keys."""
+    """Verify signatures/expiry; Auth tokens also require iat, audience and issuer."""
     try:
         header = jwt.get_unverified_header(token)
         algorithm = header.get("alg")
-        options: jwt.types.Options = {"require": ["exp", "iat", "role"]}
+        # Supabase CLI legacy anon API keys have exp/role but no issued-at claim.
+        # Keep iat mandatory for authenticated user access tokens.
+        required = ["exp", "role"] + (["iat"] if role == "authenticated" else [])
+        options: jwt.types.Options = {"require": required}
         if algorithm == "HS256":
             key: Any = read_secret(env.jwt_secret_env)
             claims = jwt.decode(

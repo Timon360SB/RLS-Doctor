@@ -14,6 +14,7 @@ from rls_doctor.identity.validation import bounded_json, local_headers
 from rls_doctor.postgres.inspector import InspectorError, doctor_database, inspect_table
 from rls_doctor.replay.runner import replay as run_replay
 from rls_doctor.replay.scenarios import load_scenario
+from rls_doctor.reports.capture import capture_report
 from rls_doctor.reports.console import render
 
 app = typer.Typer(
@@ -116,6 +117,24 @@ def validate(event: Path, format: OutputFormat = "console") -> None:
         },
         format,
     )
+
+
+@app.command()
+def analyze(
+    event: Path,
+    expected_role: Annotated[
+        Literal["anon", "authenticated"] | None,
+        typer.Option("--expected-role", help="Intended role; captured headers do not verify it."),
+    ] = None,
+    format: OutputFormat = "console",
+) -> None:
+    """Analyze a sanitized capture offline; runtime access remains UNKNOWN (exit 2)."""
+    try:
+        report = capture_report(load_event(event), expected_role)
+    except Exception as exc:
+        fail(exc, format)
+        return
+    finish(report, format)
 
 
 @app.command()

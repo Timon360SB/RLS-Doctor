@@ -1,8 +1,9 @@
 # Getting started
 
 Use Node.js 22.12+/24, pnpm 11.25.0, Python 3.12+ and uv 0.13.5. Local execution
-has been checked on Node 24 and Python 3.12; CI matrices describe intended checks,
-not independently observed results. Follow the root README to install locked
+has been checked on Node 24 and Python 3.12. The Node 22/24 and Python 3.12/3.13
+CI matrix passed on main commit 216c8b6; the Supabase E2E job failed. The local
+API-key fix still needs a complete remote rerun; see [verification](verification.md). Follow the root README to install locked
 dependencies and build the SDK before Python contract tests.
 
 ## No-database contract check
@@ -10,10 +11,13 @@ dependencies and build the SDK before Python contract tests.
 ```sh
 node examples/node-basic/capture-event.mjs > event.json
 uv run --project python rls-doctor validate event.json --format json
+uv run --project python rls-doctor analyze event.json --expected-role authenticated --format json
 ```
 
 The first command uses the real wrapper with an in-memory Fetch implementation.
-This is a producer/consumer check only. It makes no database claim.
+The validation is a producer/consumer check only. The offline analysis returns
+UNKNOWN / exit 2 because captured metadata cannot confirm the executed identity
+or prove an RLS cause. Neither command makes a database claim.
 
 ## Reproduce the entire local fixture workflow
 
@@ -82,3 +86,17 @@ example expects the permission error and should pass on the matching fixture.
 Console/JSON exit codes: PASS 0, FAIL 1, UNKNOWN 2, ERROR 3. Unknown role, incomplete
 results or unsupported evidence never become PASS. Inspection alone returns
 UNKNOWN about runtime behavior even when individual catalog facts are confirmed.
+
+Legacy HS256 anon API keys from Supabase CLI have no `iat` claim. They still
+require a valid local signature, expiry and the `anon` role. Authenticated user
+tokens additionally require `iat`, the configured audience, issuer and subject.
+
+## Interactive manual testing on Windows
+
+The [Russian step-by-step guide](manual-testing.ru.md) covers offline checks and
+individual real scenarios. With the disposable stack running and fixture consent
+set, run `uv run --project python python scripts/manual_session.py` from an
+interactive PowerShell. The helper reuses the E2E setup and opens a child shell
+with local credentials in memory. Generated TOML/YAML files contain references
+and synthetic expectations only. Exit that shell to discard its credentials;
+do not rerun setup concurrently, since it changes synthetic ownership.
