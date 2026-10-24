@@ -49,9 +49,14 @@ pnpm build
 
 node examples/node-basic/capture-event.mjs > event.json
 uv run --project python rls-doctor validate event.json --format json
+uv run --project python rls-doctor analyze event.json --expected-role authenticated --format json
 ```
 
 The real SDK wraps an in-memory Fetch implementation, then Python validates its event. This checks the shared contract; database and network behavior require the separate integration run. Packages are installed from source; npm/PyPI publications are not available yet.
+
+The offline `analyze` command explains captured metadata without credentials or a database.
+Its overall result is `UNKNOWN` (exit 2), even when the capture is valid: server-side
+identity and an RLS cause require separate evidence.
 
 ## Local replay
 
@@ -117,21 +122,22 @@ Read the [security boundaries](docs/security.md) and [limitations](docs/limitati
 | Area | Current evidence |
 | --- | --- |
 | Capture SDK | 46 local tests passed |
-| Python / shared contract | 76 local tests passed |
+| Python / shared contract | 112 local tests passed |
 | PostgreSQL inspector | 8 real integration tests passed on PostgreSQL 17.10 |
 | Packaging | Wheel built, installed and used to validate an SDK event through CLI |
-| Full Supabase Auth + REST E2E | Runner and fixtures implemented; execution still pending |
-| GitHub Actions / independent review | Not yet verified |
+| Full Supabase Auth + REST E2E | Remote run failed at API-key validation; local fix awaits full rerun |
+| GitHub Actions | 4 Node/Python matrix jobs passed; Supabase job failed before the local fix |
+| Independent maintainer review | Pending |
 
-<sub>Recorded 2026-10-23. These are local results, not live CI badges. See the <a href="docs/verification.md">verification record</a>.</sub>
+<sub>Local results: 2026-10-23, Python/PostgreSQL refreshed 2026-10-24. Remote CI checked 2026-10-24. These are dated results, not live CI badges. See the <a href="docs/verification.md">verification record</a>.</sub>
 
-Before the first stable release: complete the Supabase E2E, observe CI and obtain independent maintainer review. The [release guide](docs/releases.md) covers drafts, pre-releases and versioning.
+Before the first stable release: rerun CI with the API-key fix, complete the Supabase E2E and obtain independent maintainer review. The [release guide](docs/releases.md) covers drafts, pre-releases and versioning.
 
 ## Documentation
 
 | Start here | Go deeper |
 | --- | --- |
-| [Getting started](docs/getting-started.md) | [Architecture](docs/architecture.md) |
+| [Getting started](docs/getting-started.md) · [Manual testing on Windows (RU)](docs/manual-testing.ru.md) | [Architecture](docs/architecture.md) |
 | [SDK API](packages/capture-sdk/README.md) | [Security boundaries](docs/security.md) |
 | [Fixtures](fixtures/README.md) | [Limitations](docs/limitations.md) |
 | [Troubleshooting](docs/troubleshooting.md) | [Research](docs/research.md) |

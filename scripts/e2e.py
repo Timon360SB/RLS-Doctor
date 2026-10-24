@@ -4,12 +4,15 @@ Read `supabase status --workdir fixtures --output json` from stdin, never a file
 No captured requests, secrets, rows or raw subprocess errors are printed.
 """
 
+import contextlib
+import io
 import json
 import os
 import secrets
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import httpx
@@ -37,15 +40,12 @@ def require(condition: bool, code: str) -> None:
         raise DoctorError(code, "Disposable fixture verification failed.")
 
 
-def main() -> None:
-    require(sys.argv[1:] == ["--status-stdin"], "STATUS_STDIN_REQUIRED")
+def setup_fixture(status: dict[str, Any]) -> tuple[ProjectConfig, list[tuple[str, str]]]:
+    """Prepare only approved disposable fixtures; keep credentials in process memory."""
     require(
         os.environ.get("RLS_DOCTOR_ALLOW_FIXTURE_SETUP") == "1",
         "SETUP_CONSENT_REQUIRED",
     )
-    raw = sys.stdin.read(65537)
-    require(len(raw) <= 65536, "STATUS_LIMIT")
-    status = json.loads(raw)
     env = LocalEnvironment(approved_local=True, api_url=status["API_URL"], resources=TABLES)
     origin = env.origin()
     dsn = validate_database_dsn(status["DB_URL"], env.allowed_db_ports)
@@ -79,7 +79,107 @@ def main() -> None:
                     (user[0], row_id),
                 )
     os.environ["RLS_DOCTOR_TEST_TOKEN"] = users[0][1]
-    config = ProjectConfig(environment=env)
+    return ProjectConfig(environment=env), users
+
+
+def require_case_evidence(
+    report: dict[str, Any],
+    name: str,
+    wanted: str,
+    observed_status: int | None = None,
+    observed_count: int | None = None,
+    evidence_checks: dict[str, str] | None = None,
+) -> None:
+    """An expected failing diagnosis must fail for the intended observed reason."""
+    require(report["result"] == wanted, name.upper())
+    if observed_status is not None:
+        require(report["http"]["status"] == observed_status, name.upper() + "_HTTP_EVIDENCE")
+    if observed_count is not None:
+        require(report["http"]["row_count"] == observed_count, name.upper() + "_ROW_EVIDENCE")
+    for check, result in (evidence_checks or {}).items():
+        matching = [item for item in report["checks"] if item["check"] == check]
+        require(
+            len(matching) == 1 and matching[0]["result"] == result,
+            name.upper() + "_CHECK_EVIDENCE",
+        )
+
+
+def integration_child() -> None:
+    """Emit counts only; the parent never retains pytest diagnostics as artifacts."""
+    import pytest
+
+    class Evidence:
+        collected = 0
+        passed = 0
+        skipped = 0
+        failed = 0
+
+        def pytest_collection_finish(self, session: pytest.Session) -> None:
+            self.collected = len(session.items)
+
+        def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+            if report.when == "call" and report.passed:
+                self.passed += 1
+            if report.skipped:
+                self.skipped += 1
+            if report.failed:
+                self.failed += 1
+
+    evidence = Evidence()
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        result = pytest.main(["python/tests/integration", "-q", "--tb=no"], plugins=[evidence])
+    print(
+        json.dumps(
+            {
+                "exit_code": int(result),
+                "collected": evidence.collected,
+                "passed": evidence.passed,
+                "skipped": evidence.skipped,
+                "failed": evidence.failed,
+            }
+        )
+    )
+
+
+def run_integration_suite(dsn: str) -> None:
+    """Require actual executed passes, including when pytest exits zero after skips."""
+    child = subprocess.run(
+        [sys.executable, "-c", "from scripts.e2e import integration_child; integration_child()"],
+        cwd=ROOT,
+        env={**os.environ, "RLS_DOCTOR_INTEGRATION_DSN": dsn},
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    require(child.returncode == 0, "POSTGRES_INTEGRATION_FAILED")
+    try:
+        summary = json.loads(child.stdout)
+    except (ValueError, UnicodeError):
+        raise DoctorError(
+            "POSTGRES_INTEGRATION_EVIDENCE", "Integration execution evidence is unavailable."
+        ) from None
+    keys = ("exit_code", "collected", "passed", "skipped", "failed")
+    require(
+        isinstance(summary, dict)
+        and all(type(summary.get(key)) is int for key in keys)
+        and summary["exit_code"] == 0
+        and summary["collected"] > 0
+        and summary["passed"] == summary["collected"]
+        and summary["skipped"] == 0
+        and summary["failed"] == 0,
+        "POSTGRES_INTEGRATION_INCOMPLETE",
+    )
+
+
+def main() -> None:
+    require(sys.argv[1:] == ["--status-stdin"], "STATUS_STDIN_REQUIRED")
+    raw = sys.stdin.read(65537)
+    require(len(raw) <= 65536, "STATUS_LIMIT")
+    config, users = setup_fixture(json.loads(raw))
+    env = config.environment
+    origin = env.origin()
+    dsn = env.database_dsn()
 
     # Capture an actual supabase-js request, then validate the real event in Python.
     process = subprocess.run(
@@ -103,6 +203,9 @@ def main() -> None:
         expect: dict[str, object] | None = None,
         filters: dict[str, object] | None = None,
         wanted: str = "PASS",
+        observed_status: int | None = None,
+        observed_count: int | None = None,
+        evidence_checks: dict[str, str] | None = None,
     ) -> None:
         identity_data: dict[str, object] = {"type": identity}
         if identity == "authenticated":
@@ -124,7 +227,9 @@ def main() -> None:
             }
         )
         report = replay(scenario, config, event if resource == "documents" else None, inspect=True)
-        require(report["result"] == wanted, name.upper())
+        require_case_evidence(
+            report, name, wanted, observed_status, observed_count, evidence_checks
+        )
         serialized = json.dumps(report)
         require(
             all(
@@ -153,13 +258,29 @@ def main() -> None:
         resource="blocked_documents",
         expect={"status": 200, "row_count": 1},
         wanted="FAIL",
+        observed_status=200,
+        observed_count=0,
+        evidence_checks={"http_status": "PASS", "row_count": "FAIL", "executed_role": "PASS"},
     )
     case(
         "missing_grant",
         resource="no_grant_documents",
         expect={"status": 403, "error_class": "permission"},
     )
-    case("tenant_isolation_leak", resource="leaky_documents", wanted="FAIL")
+    case(
+        "tenant_isolation_leak",
+        resource="leaky_documents",
+        wanted="FAIL",
+        observed_status=200,
+        observed_count=2,
+        evidence_checks={
+            "http_status": "PASS",
+            "row_count": "FAIL",
+            "contains_1": "PASS",
+            "excludes_1": "FAIL",
+            "executed_role": "PASS",
+        },
+    )
     case(
         "nonexistent_row_ambiguity",
         filters={"id": {"eq": str(uuid4())}},
@@ -180,16 +301,7 @@ def main() -> None:
     )
 
     # Run real PostgreSQL regression suite using credentials only in child env.
-    child_env = {**os.environ, "RLS_DOCTOR_INTEGRATION_DSN": dsn}
-    child = subprocess.run(
-        [sys.executable, "-m", "pytest", "python/tests/integration", "-q", "--tb=no"],
-        cwd=ROOT,
-        env=child_env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    require(child.returncode == 0, "POSTGRES_INTEGRATION_FAILED")
+    run_integration_suite(dsn)
     print("PASS real PostgreSQL inspector integration suite")
 
 

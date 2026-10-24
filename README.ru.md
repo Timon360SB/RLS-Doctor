@@ -49,9 +49,13 @@ pnpm build
 
 node examples/node-basic/capture-event.mjs > event.json
 uv run --project python rls-doctor validate event.json --format json
+uv run --project python rls-doctor analyze event.json --expected-role authenticated --format json
 ```
 
 Пример использует настоящую Fetch-обёртку с ответом в памяти и проверяет событие в Python. Это проверка контракта; поведение Supabase и базы данных проверяется отдельно. Пакеты устанавливаются из репозитория — публикаций в npm и PyPI пока нет.
+
+Команда `analyze` разбирает метаданные без ключей, сети и базы. Итог `UNKNOWN`
+(код 2) ожидаем: по событию нельзя подтвердить исполняемую роль или причину RLS.
 
 ## Локальная проверка
 
@@ -73,21 +77,24 @@ uv run --project python rls-doctor replay documents.yaml --inspect --format json
 | Часть проекта | Наблюдаемый результат |
 | --- | --- |
 | TypeScript SDK | 46 локальных тестов прошли |
-| Python и общий контракт | 76 локальных тестов прошли |
+| Python и общий контракт | 112 локальных тестов прошли |
 | Инспектор PostgreSQL | 8 реальных интеграционных тестов прошли на PostgreSQL 17.10 |
 | Python-пакет | Wheel собран, установлен и проверен через CLI |
-| Полный Supabase Auth + REST E2E | Код и окружение подготовлены; выполнение ещё не проверено |
-| GitHub Actions и независимое ревью | Ещё не подтверждены |
+| Полный Supabase Auth + REST E2E | Удалённый запуск упал на проверке API-ключа; локальное исправление ждёт полного прогона |
+| GitHub Actions | 4 задания матрицы Node/Python прошли; задание Supabase упало до локального исправления |
+| Независимое ревью | Ожидается |
 
-<sub>Снимок локальных проверок от 23.10.2026. Это не результат текущего CI. <a href="docs/verification.md">Полный отчёт</a>.</sub>
+<sub>Локальная база от 23.10.2026, Python и PostgreSQL перепроверены 24.10.2026. Удалённый CI проверен 24.10.2026. Результаты относятся к указанным запускам. <a href="docs/verification.md">Полный отчёт</a>.</sub>
 
-До стабильного релиза нужны полный Supabase E2E, подтверждённый CI и независимое ревью. Инструмент не доказывает защищённость приложения в целом.
+До стабильного релиза нужны повторный CI с исправлением API-ключа, полный Supabase E2E и независимое ревью. Инструмент не доказывает защищённость приложения в целом.
 
 ## Документация
 
+- [Пошаговое ручное тестирование на Windows](docs/manual-testing.ru.md).
 - [Запуск](docs/getting-started.md) и [API SDK](packages/capture-sdk/README.md).
 - [Архитектура](docs/architecture.md), [разработка](docs/development.md), [исследование аналогов](docs/research.md).
 - [Безопасность](docs/security.md), [ограничения](docs/limitations.md), [решение проблем](docs/troubleshooting.md).
+- [Как указать помощь Codex в PR](docs/ai-contributions.ru.md).
 - [Релизы](docs/releases.ru.md), [история изменений](CHANGELOG.md), [оформление GitHub](docs/github-appearance.ru.md).
 
 Основная техническая документация ведётся на английском.

@@ -4,13 +4,32 @@ from rls_doctor.core.models import DiagnosticEvent
 
 
 def analyze_event(event: DiagnosticEvent, expected_role: str | None = None) -> list[dict[str, str]]:
+    if event.response.status is not None:
+        code = "HTTP_OBSERVED"
+        summary = "HTTP metadata was captured; header presence does not prove identity."
+    elif event.response.error_kind == "network":
+        code = "NETWORK_FAILURE_OBSERVED"
+        summary = "The SDK classified a network failure without an HTTP status."
+    else:
+        code = "HTTP_STATUS_UNAVAILABLE"
+        summary = "No HTTP status was captured; the failure type is unknown."
     facts = [
         {
-            "code": "HTTP_OBSERVED",
+            "code": code,
             "evidence": "OBSERVED",
-            "summary": "HTTP metadata was captured; header presence does not prove identity.",
+            "summary": summary,
         }
     ]
+    if event.context.authorization_present:
+        facts.append(
+            {
+                "code": "AUTHORIZATION_CONTEXT_UNVERIFIED",
+                "evidence": "UNVERIFIED",
+                "summary": (
+                    "An authorization header was present; identity and executed role are unknown."
+                ),
+            }
+        )
     if expected_role == "authenticated" and not event.context.authorization_present:
         facts.append(
             {
