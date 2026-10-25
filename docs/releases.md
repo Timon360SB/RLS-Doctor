@@ -47,3 +47,16 @@ Use CHANGELOG.md for version history, Releases for downloadable snapshots and Is
 
 - [Managing releases](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository?tool=webui).
 - [Repository README behavior](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-readmes).
+
+
+## Local installable-artifact validation
+
+`uv run --project python python scripts/package_check.py` builds and audits a wheel,
+sdist and SDK tarball, installs both components separately, and checks installed
+SDK/file-sink behavior, public declarations, version metadata and the shared event
+contract. It writes SHA256SUMS and manifest.json beside the intended archives.
+
+This is a working-tree preview, not publication. The manifest records the source
+commit and dirty state. Rebuild from the reviewed release commit before attaching
+artifacts; do not upload the whole consumer/venv/capture directory. Versions are
+not bumped automatically and the SDK's private flag is preserved.

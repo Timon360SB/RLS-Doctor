@@ -7,6 +7,9 @@ from typing import Annotated, Any, Literal
 import httpx
 import typer
 
+from rls_doctor import __version__
+from rls_doctor.cli.session import run_session
+from rls_doctor.cli.wizard import guided_files, initialize
 from rls_doctor.core.config import load_config
 from rls_doctor.core.errors import DoctorError
 from rls_doctor.core.models import load_event
@@ -15,18 +18,23 @@ from rls_doctor.postgres.inspector import InspectorError, doctor_database, inspe
 from rls_doctor.replay.runner import replay as run_replay
 from rls_doctor.replay.scenarios import load_scenario
 from rls_doctor.reports.capture import capture_report
-from rls_doctor.reports.console import render
+from rls_doctor.reports.console import Language, render, word
+from rls_doctor.reports.files import available, write_report
 
 app = typer.Typer(
     no_args_is_help=True,
     pretty_exceptions_enable=False,
     help="Explicit local Supabase request and authorization diagnostics.",
+    epilog="Documentation: https://github.com/Timon360SB/RLS-Doctor#documentation",
 )
 Format = Literal["console", "json"]
 ConfigPath = Annotated[
     Path, typer.Option("--config", "-c", help="Local project TOML configuration.")
 ]
 OutputFormat = Annotated[Format, typer.Option("--format", help="Console or machine-readable JSON.")]
+OutputLanguage = Annotated[
+    Language, typer.Option("--language", help="Console language: en or ru; JSON stays unchanged.")
+]
 
 CONFIG_TEMPLATE = """version = 1
 [environment]
@@ -56,14 +64,32 @@ expect:
 """
 
 
-def finish(report: dict[str, Any], format: Format) -> None:
-    render(report, format)
+OutputPath = Annotated[
+    Path | None,
+    typer.Option("--output", help="Save generated JSON to a new UTF-8 file; never overwrite."),
+]
+
+
+def finish(
+    report: dict[str, Any], format: Format, language: Language = "en", output: Path | None = None
+) -> None:
+    if output is not None:
+        try:
+            write_report(report, output)
+        except Exception as exc:
+            fail(exc, format, language)
+            return
+        if format == "console":
+            typer.echo(word(language, "JSON report saved.", "JSON-отчёт сохранён."))
+    render(report, format, language)
     raise typer.Exit(
         {"PASS": 0, "FAIL": 1, "UNKNOWN": 2, "ERROR": 3}.get(report.get("result", "UNKNOWN"), 2)
     )
 
 
-def fail(exc: Exception, format: Format) -> None:
+def fail(
+    exc: Exception, format: Format, language: Language = "en", output: Path | None = None
+) -> None:
     if isinstance(exc, (DoctorError, InspectorError)):
         code, message = exc.code, str(exc)
     elif isinstance(exc, httpx.HTTPError):
@@ -76,36 +102,102 @@ def fail(exc: Exception, format: Format) -> None:
             "EXECUTION_ERROR",
             "Diagnostic execution failed; no untrusted error details were retained.",
         )
-    finish({"result": "ERROR", "error": {"code": code, "message": message}}, format)
+    finish(
+        {"result": "ERROR", "error": {"code": code, "message": message}}, format, language, output
+    )
+
+
+@app.callback(invoke_without_command=True)
+def entrypoint(
+    version: Annotated[
+        bool, typer.Option("--version", is_eager=True, help="Show installed CLI version.")
+    ] = False,
+) -> None:
+    if version:
+        typer.echo("RLS Doctor " + __version__)
+        raise typer.Exit(0)
 
 
 @app.command()
-def init(directory: Annotated[Path, typer.Option("--directory")] = Path(".")) -> None:
-    """Create examples without overwriting existing files; replay stays disabled."""
+def init(
+    directory: Annotated[Path, typer.Option("--directory")] = Path("."),
+    interactive: Annotated[
+        bool,
+        typer.Option(
+            "--interactive", help="Guided local project setup; no secrets or connections."
+        ),
+    ] = False,
+    language: OutputLanguage = "en",
+) -> None:
+    """Create configuration and a synthetic scenario without overwriting files."""
     try:
-        directory.mkdir(parents=True, exist_ok=True)
-        paths = [directory / "rls-doctor.toml", directory / "documents.yaml"]
-        if any(p.exists() or p.is_symlink() for p in paths):
+        if any(
+            (directory / name).exists() or (directory / name).is_symlink()
+            for name in ("rls-doctor.toml", "documents.yaml")
+        ):
             raise DoctorError(
                 "INIT_EXISTS", "Example files already exist; choose another directory."
             )
-        for path, content in zip(paths, (CONFIG_TEMPLATE, SCENARIO_TEMPLATE), strict=True):
-            with path.open("x", encoding="utf-8") as handle:
-                handle.write(content)
+        contents = guided_files(language) if interactive else (CONFIG_TEMPLATE, SCENARIO_TEMPLATE)
+        initialize(directory, contents)
         typer.echo(
-            "Created local config and scenario. Review fixtures before enabling approved_local."
+            word(
+                language,
+                "Created rls-doctor.toml and documents.yaml. Review the local "
+                "destination before replay.",
+                "Созданы rls-doctor.toml и documents.yaml. Проверьте локальный "
+                "адрес перед воспроизведением.",
+            )
         )
+        if interactive:
+            typer.echo(
+                word(
+                    language,
+                    "Next: use 'rls-doctor session' with this config and the running "
+                    "local Supabase --workdir. No keys need copying; see "
+                    "docs/managed-session.md. No secrets were requested or saved.",
+                    "Далее: используйте 'rls-doctor session' с этой конфигурацией "
+                    "и --workdir работающего локального Supabase. Ключи копировать "
+                    "не нужно; см. docs/managed-session.ru.md. Секреты не сохранялись.",
+                )
+            )
+            typer.echo(
+                word(
+                    language,
+                    "This configuration leaves the identity probe disabled. "
+                    "Runtime role stays unconfirmed; replay may return UNKNOWN. "
+                    "Count expectations alone do not prove isolation.",
+                    "Пробник роли выключен в этой конфигурации. Исполняемая "
+                    "роль не подтверждена: replay может вернуть UNKNOWN. Проверка "
+                    "числа строк не доказывает изоляцию.",
+                )
+            )
+    except (typer.Abort, KeyboardInterrupt):
+        typer.echo(
+            word(
+                language,
+                "Setup cancelled. No files created.",
+                "Настройка отменена. Файлы не созданы.",
+            )
+        )
+        raise typer.Exit(0) from None
     except Exception as exc:
-        fail(exc, "console")
+        fail(exc, "console", language)
 
 
 @app.command()
-def validate(event: Path, format: OutputFormat = "console") -> None:
+def validate(
+    event: Path,
+    format: OutputFormat = "console",
+    language: OutputLanguage = "en",
+    output: OutputPath = None,
+) -> None:
     """Validate a captured diagnostic event using shared schema v1."""
     try:
+        available(output)
         parsed = load_event(event)
     except Exception as exc:
-        fail(exc, format)
+        fail(exc, format, language, output)
         return
     finish(
         {
@@ -116,6 +208,8 @@ def validate(event: Path, format: OutputFormat = "console") -> None:
             "checks": [{"check": "event_contract", "result": "PASS"}],
         },
         format,
+        language,
+        output,
     )
 
 
@@ -127,51 +221,74 @@ def analyze(
         typer.Option("--expected-role", help="Intended role; captured headers do not verify it."),
     ] = None,
     format: OutputFormat = "console",
+    output: OutputPath = None,
+    language: OutputLanguage = "en",
 ) -> None:
     """Analyze a sanitized capture offline; runtime access remains UNKNOWN (exit 2)."""
     try:
+        available(output)
         report = capture_report(load_event(event), expected_role)
     except Exception as exc:
-        fail(exc, format)
+        fail(exc, format, language, output)
         return
-    finish(report, format)
+    finish(report, format, language, output)
 
 
 @app.command()
-def doctor(config: ConfigPath = Path("rls-doctor.toml"), format: OutputFormat = "console") -> None:
+def doctor(
+    config: ConfigPath = Path("rls-doctor.toml"),
+    format: OutputFormat = "console",
+    output: OutputPath = None,
+    language: OutputLanguage = "en",
+) -> None:
     """Check approved local API, PostgreSQL version and required test roles."""
     try:
+        available(output)
         env = load_config(config).environment
         database = doctor_database(env.database_dsn())
-        with httpx.Client(timeout=5, trust_env=False, follow_redirects=False) as client:
-            headers, _ = local_headers(env, client, None)
-            status, identity = bounded_json(
-                client, env.origin() + "/rest/v1/rpc/rls_doctor_identity", headers
-            )
-        role_checks = [
-            inspect_table(env.database_dsn(), "public", resource, role)
-            for role in ("anon", "authenticated")
-            for resource in env.resources[:1]
-        ]
+        status: int | None = None
+        identity: Any = None
+        if env.confirm_identity:
+            with httpx.Client(timeout=5, trust_env=False, follow_redirects=False) as client:
+                headers, _ = local_headers(env, client, None)
+                status, identity = bounded_json(
+                    client,
+                    env.origin() + "/rest/v1/rpc/rls_doctor_identity",
+                    {**headers, "Accept-Profile": "public"},
+                )
+        roles = database["required_roles"]
+        identity_confirmed = (
+            status == 200 and isinstance(identity, dict) and identity.get("role") == "anon"
+        )
         result = (
-            "PASS"
-            if status == 200
-            and isinstance(identity, dict)
-            and identity.get("role") == "anon"
-            and database["database"]["supported"]
-            and role_checks
+            "FAIL"
+            if not all(roles.values())
+            else "PASS"
+            if identity_confirmed and database["database"]["supported"]
             else "UNKNOWN"
         )
         report = {
             "result": result,
             "database": database,
             "http_status": status,
-            "limitations": ["Only approved disposable local fixtures are supported."],
+            "checks": [
+                {"check": "role_" + role, "result": "PASS" if exists else "FAIL"}
+                for role, exists in roles.items()
+            ]
+            + [{"check": "api_identity", "result": "PASS" if identity_confirmed else "UNKNOWN"}],
+            "limitations": ["Only approved disposable local fixtures are supported."]
+            + (
+                []
+                if env.confirm_identity
+                else [
+                    "Identity probe is disabled; API availability and executed role are unverified."
+                ]
+            ),
         }
     except Exception as exc:
-        fail(exc, format)
+        fail(exc, format, language, output)
         return
-    finish(report, format)
+    finish(report, format, language, output)
 
 
 @app.command()
@@ -180,9 +297,12 @@ def inspect(
     role: Annotated[str, typer.Option()] = "authenticated",
     config: ConfigPath = Path("rls-doctor.toml"),
     format: OutputFormat = "console",
+    output: OutputPath = None,
+    language: OutputLanguage = "en",
 ) -> None:
     """Read catalog metadata for schema.table; never query user rows."""
     try:
+        available(output)
         parts = table.split(".")
         if len(parts) != 2 or any(
             not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]{0,62}", p) for p in [*parts, role]
@@ -197,9 +317,9 @@ def inspect(
         report["result"] = "UNKNOWN"
         report["resource"] = table
     except Exception as exc:
-        fail(exc, format)
+        fail(exc, format, language, output)
         return
-    finish(report, format)
+    finish(report, format, language, output)
 
 
 @app.command()
@@ -207,6 +327,8 @@ def replay(
     scenario: Path,
     config: ConfigPath = Path("rls-doctor.toml"),
     format: OutputFormat = "console",
+    output: OutputPath = None,
+    language: OutputLanguage = "en",
     event: Annotated[Path | None, typer.Option(help="Optional sanitized captured event.")] = None,
     inspect_db: Annotated[
         bool, typer.Option("--inspect", help="Also read local PostgreSQL catalogs.")
@@ -214,6 +336,7 @@ def replay(
 ) -> None:
     """Execute an explicit synthetic GET scenario with verified local identity."""
     try:
+        available(output)
         report = run_replay(
             load_scenario(scenario),
             load_config(config),
@@ -221,9 +344,79 @@ def replay(
             inspect=inspect_db,
         )
     except Exception as exc:
-        fail(exc, format)
+        fail(exc, format, language, output)
         return
-    finish(report, format)
+    finish(report, format, language, output)
+
+
+@app.command()
+def session(
+    config: ConfigPath = Path("rls-doctor.toml"),
+    workdir: Annotated[
+        Path, typer.Option("--workdir", help="Local Supabase project folder.")
+    ] = Path("."),
+    scenario: Annotated[
+        Path | None,
+        typer.Option("--scenario", help="Explicit synthetic scenario; defaults beside config."),
+    ] = None,
+    event: Annotated[
+        Path | None,
+        typer.Option(
+            "--event",
+            help="Optional sanitized capture; replay values still come from the scenario.",
+        ),
+    ] = None,
+    language: OutputLanguage = "en",
+    format: OutputFormat = "console",
+    output: OutputPath = None,
+    run_once: Annotated[
+        bool, typer.Option("--run", help="Run once without a menu; preserve replay exit code.")
+    ] = False,
+    create_test_user: Annotated[
+        bool,
+        typer.Option(
+            "--create-test-user",
+            help="Explicitly allow one synthetic local Auth signup if no test token exists.",
+        ),
+    ] = False,
+) -> None:
+    """Use local Supabase credentials in memory, with a diagnostic menu or one run."""
+    try:
+        available(output)
+        code = run_session(
+            config,
+            workdir,
+            scenario,
+            language,
+            run_once=run_once,
+            create_user=create_test_user,
+            output_format=format,
+            event_path=event,
+            output_path=output,
+        )
+    except (typer.Abort, KeyboardInterrupt):
+        if format == "json" or run_once:
+            fail(
+                DoctorError(
+                    "SESSION_CANCELLED", "Local session interrupted; no outcome was established."
+                ),
+                format,
+                language,
+                output,
+            )
+            return
+        typer.echo(
+            word(
+                language,
+                "Session cancelled. Docker remains running.",
+                "Сессия отменена. Docker продолжает работать.",
+            )
+        )
+        raise typer.Exit(0) from None
+    except Exception as exc:
+        fail(exc, format, language, output)
+        return
+    raise typer.Exit(code)
 
 
 if __name__ == "__main__":

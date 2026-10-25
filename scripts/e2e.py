@@ -141,7 +141,7 @@ def integration_child() -> None:
     )
 
 
-def run_integration_suite(dsn: str) -> None:
+def run_integration_suite(dsn: str) -> dict[str, int]:
     """Require actual executed passes, including when pytest exits zero after skips."""
     child = subprocess.run(
         [sys.executable, "-c", "from scripts.e2e import integration_child; integration_child()"],
@@ -170,6 +170,7 @@ def run_integration_suite(dsn: str) -> None:
         and summary["failed"] == 0,
         "POSTGRES_INTEGRATION_INCOMPLETE",
     )
+    return {key: summary[key] for key in keys}
 
 
 def fixture_integration_dsn(dsn: str) -> str:

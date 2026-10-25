@@ -84,7 +84,9 @@ def replay(
             report["identity"]["verified_claim_role"] = claims["role"]
         if env.confirm_identity:
             probe_status, probe = bounded_json(
-                client, origin + "/rest/v1/rpc/rls_doctor_identity", headers
+                client,
+                origin + "/rest/v1/rpc/rls_doctor_identity",
+                {**headers, "Accept-Profile": "public"},
             )
             if (
                 probe_status == 200

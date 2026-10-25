@@ -1,0 +1,5 @@
+-- Three synthetic tasks. The approved checker assigns these rows to new local users.
+insert into task_board.tasks (id, owner_id, title, state) values
+('20000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', 'SYNTHETIC_TASK_ALICE_TITLE', 'todo'),
+('20000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000001', 'SYNTHETIC_TASK_ALICE_DONE', 'done'),
+('20000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000002', 'SYNTHETIC_TASK_BOB_TITLE', 'todo');

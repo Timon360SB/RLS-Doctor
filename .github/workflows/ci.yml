@@ -58,14 +58,44 @@ jobs:
         run: uv run mypy
       - name: Python unit, security and shared-contract tests
         run: uv run --project python pytest python/tests -m 'not integration'
-      - name: Build and execute installed Python wheel
+      - name: Build, audit and execute installed Python and SDK distributions
+        # Local preview artifacts only. This does not publish to a registry.
+        run: uv run --project python python scripts/package_check.py
+
+  windows-unit:
+    name: Windows Node 22 / Python 3.13
+    runs-on: windows-2025
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: "22"
+      - name: Install pinned pnpm
         run: |
-          uv build --project python --out-dir .package-check
-          uv venv .package-check/venv
-          uv pip install --python .package-check/venv/bin/python .package-check/*.whl
-          .package-check/venv/bin/rls-doctor --help
-          node examples/node-basic/capture-event.mjs > .package-check/event.json
-          .package-check/venv/bin/rls-doctor validate .package-check/event.json --format json
+          corepack enable
+          corepack prepare pnpm@11.25.0 --activate
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          version: "0.13.5"
+          python-version: "3.13"
+      - name: Install locked dependencies and build SDK
+        run: |
+          pnpm install --frozen-lockfile
+          uv sync --project python --frozen --group dev
+          pnpm build
+      - name: Parse Windows launchers
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/demo.ps1'), [ref]$tokens, [ref]$parseErrors) > $null
+          if ($parseErrors.Count) { throw 'Windows launcher syntax check failed' }
+      - name: Python unit, privacy, shared contract and process-lock tests
+        run: uv run --project python pytest python/tests -m 'not integration'
 
   local-integration:
     name: Actual local Supabase and PostgreSQL
@@ -109,6 +139,40 @@ jobs:
         run: |
           supabase status --workdir fixtures --output json 2>/dev/null |
             uv run --project python python scripts/e2e.py --status-stdin
+      - name: Managed session JSON contract and exit codes
+        # The checker retains local status in memory; raw logs/keys are never emitted.
+        run: uv run --project python python scripts/session_check.py --workdir fixtures
+      - name: Separate task-board app with installed SDK and CLI
+        run: uv run --project python python scripts/task_board_check.py --check
+      - name: Stop separate sample app
+        if: always()
+        run: |
+          if [ -f .rls-doctor/task-board/supabase/config.toml ]; then
+            uv run --project python python scripts/task_board_check.py --stop
+          fi
       - name: Stop disposable local stack
         if: always()
         run: supabase stop --workdir fixtures >/dev/null 2>&1
+
+
+  postgres-compatibility:
+    name: PostgreSQL ${{ matrix.postgres }} catalog and RLS behavior
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["16", "18"]
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          version: "0.13.5"
+          python-version: "3.12"
+      - name: Install locked Python test dependencies
+        run: uv sync --project python --frozen --group dev
+      - name: Test actual PostgreSQL with scoped container cleanup
+        run: uv run --project python python scripts/postgres_matrix.py --versions ${{ matrix.postgres }}

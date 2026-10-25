@@ -1,10 +1,29 @@
 # Getting started
 
 Use Node.js 22.12+/24, pnpm 11.25.0, Python 3.12+ and uv 0.13.5. Local execution
-has been checked on Node 24 and Python 3.12. The Node 22/24 and Python 3.12/3.13
-CI matrix passed on main commit 216c8b6; the Supabase E2E job failed. The local
-API-key fix still needs a complete remote rerun; see [verification](verification.md). Follow the root README to install locked
-dependencies and build the SDK before Python contract tests.
+has been checked on all four combinations of Node 22.23.4 / 24.22.1 and
+Python 3.12.14 / 3.13.17. The local Supabase workflow and installed-package checks
+have separate execution evidence; see [verification](verification.md). Current
+remote CI, independent review and clean-machine onboarding remain release gates.
+Follow the root README to install locked dependencies and build the SDK before
+Python contract tests.
+
+## Windows: start with the guided practice lab
+
+Run `.\lab.cmd` in PowerShell from the repository root. The launcher checks tools,
+prepares an isolated synthetic database and opens an English menu. Use
+`.\lab.cmd -Language ru` for Russian. No credentials need copying.
+
+Choose **18** for all functional checks or follow the numbered menu individually.
+An expected FAIL in a deliberately broken scenario demonstrates detection;
+it is not a launcher failure. The checklist compares expected and actual outcomes.
+See the [detailed walkthrough](practice-testing.md) for each scenario's meaning.
+
+Only one lab session can hold the practice lock at a time, preventing another
+launcher from reassigning your test rows. Close the first lab menu before opening
+a second. The OS releases this lock even after a process crash; do not delete its
+file. Exit with **0**; stop the practice stack later with `.\lab.cmd -Stop`.
+
 
 ## No-database contract check
 
@@ -42,6 +61,39 @@ synthetic ownership, captures an actual supabase-js request and runs the real
 replay/inspector tests. Passwords and tokens remain in that process and are not
 exported to your parent shell. Re-running creates new disposable users; reset the
 local fixture stack when finished. No production data or remote project link.
+
+## Guided local configuration
+
+Run `uv run --project python rls-doctor init --interactive` (add `--language ru`
+for Russian). Choose `--directory .rls-doctor/my-project` for ignored local files.
+The wizard validates the local URL and identifiers, previews expectations and
+asks before enabling local replay or saving. Cancelling leaves no new files.
+Configuration does not start Docker, connect to a service, copy production data,
+create database objects, or ask for credentials.
+
+Supply the local-only credential references listed below through a private
+shell or secret manager. The wizard deliberately sets `confirm_identity=false`:
+it does not install the fixture-specific identity RPC into your application.
+Without a trusted probe, replay keeps the executed role unconfirmed (UNKNOWN)
+and `doctor` does not call that RPC or claim API readiness. Enabling the flag
+requires separately reviewed local infrastructure; it is not an installation fix.
+Row-count-only expectations do not prove that another user's row was excluded;
+add explicit synthetic `contains`/`excludes` assertions to test isolation.
+
+Human-readable reports support `--language en` (default) and `--language ru`
+on validate, analyze, doctor, inspect and replay. They group evidence by
+OBSERVED / INFERRED / UNVERIFIED and show failed expectations separately.
+`--format json` and exit codes are unchanged in either language.
+
+## Local credentials without copy/paste
+
+Use `rls-doctor session --config path/to/rls-doctor.toml --workdir path/to/local-project`
+for automatic local CLI status loading and a diagnostic menu. The selected stack
+must already run, and configuration must explicitly approve its local address.
+The session never persists credentials or installs database objects. Synthetic
+Auth signup requires a separate prompt/flag and does not prepare application rows.
+See [managed sessions](managed-session.md) / [Русский](managed-session.ru.md).
+Manual environment-variable setup below remains available for ordinary commands.
 
 ## Run your own explicit scenario
 
@@ -100,3 +152,23 @@ interactive PowerShell. The helper reuses the E2E setup and opens a child shell
 with local credentials in memory. Generated TOML/YAML files contain references
 and synthetic expectations only. Exit that shell to discard its credentials;
 do not rerun setup concurrently, since it changes synthetic ownership.
+
+
+## Save a report directly
+
+Add `--output .rls-doctor/reports/check-1.json` to validate, analyze, doctor,
+inspect or replay. For managed sessions use `--run --output ...`. The CLI writes
+UTF-8 JSON independently of shell encoding; `--format json` still emits only JSON
+on stdout, and the original outcome exit code remains unchanged when saving works.
+Console display remains available without --format json. Error reports can also
+be saved. Existing files are never overwritten: choose a new filename for each run.
+Directories are created as needed; existing destinations are rejected before
+network/credential setup. Reports are capped at 1 MiB; atomic publication requires
+filesystem hard-link support. A failed save returns ERROR / 3.
+
+```powershell
+uv run --project python rls-doctor replay documents.yaml --output .rls-doctor/reports/check-1.json
+```
+
+Use an approved synthetic scenario and local configuration as described above.
+See [the readiness audit](mvp-readiness.md) for the remaining release gates.

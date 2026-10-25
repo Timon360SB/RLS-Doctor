@@ -175,8 +175,13 @@ def doctor_database(dsn: str) -> dict[str, Any]:
                     "pg_roles",
                 )
             )
+        required_roles = {
+            role: connection.execute(_ROLE_SQL, (role,)).fetchone() is not None
+            for role in ("anon", "authenticated")
+        }
         return {
             "database": database,
+            "required_roles": required_roles,
             "conclusions": conclusions,
             "limitations": [
                 "No user rows or policy predicates were evaluated.",
