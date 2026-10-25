@@ -5,13 +5,29 @@
   "private": true,
   "description": "Opt-in sanitized Supabase REST GET metadata capture for Node.js",
   "type": "module",
-  "engines": { "node": ">=22" },
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "files": ["dist", "README.md"],
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint src test"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Timon360SB/RLS-Doctor.git",
+    "directory": "packages/capture-sdk"
+  },
+  "homepage": "https://github.com/Timon360SB/RLS-Doctor#documentation"
 }

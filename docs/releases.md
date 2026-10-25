@@ -47,3 +47,36 @@ Use CHANGELOG.md for version history, Releases for downloadable snapshots and Is
 
 - [Managing releases](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository?tool=webui).
 - [Repository README behavior](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-readmes).
+
+
+## Local installable-artifact validation
+
+`uv run --project python python scripts/package_check.py` builds and audits a wheel,
+sdist and SDK tarball, installs both components separately, and checks installed
+SDK/file-sink behavior, public declarations, version metadata and the shared event
+contract. It writes SHA256SUMS and manifest.json beside the intended archives.
+
+This is a working-tree preview, not publication. The manifest records the source
+commit and dirty state. Rebuild from the reviewed release commit before attaching
+artifacts; do not upload the whole consumer/venv/capture directory. Versions are
+not bumped automatically and the SDK's private flag is preserved.
+
+
+## Downloadable CI previews
+
+The checks matrix now has an explicit package-directory handoff and an
+`actions/upload-artifact@v7.0.2` retention step. After a successful run containing
+that change, open its Artifacts section and download the preview matching the
+commit/runtime/attempt. GitHub sign-in is required for those downloads; retention
+is seven days. No release/tag/registry publication is performed by this workflow.
+
+The upload input is one audited directory, not a glob over previous runs. It must
+contain exactly one wheel, one sdist, one SDK tarball, SHA256SUMS and manifest.json.
+The helper rechecks hashes and checksum text, rejects extra files/directories or
+links, requires a clean source state matching GITHUB_SHA, and keeps CI step metadata
+outside that directory. Intermediate uv metadata stays in python-build separately.
+The hidden parent directory is explicitly allowed only after this strict audit.
+
+The new retention step must pass remotely before claiming preview downloads are
+available for a commit. See [independent acceptance](release-review.md) /
+[Русский](release-review.ru.md) for clean-machine and maintainer reproduction.

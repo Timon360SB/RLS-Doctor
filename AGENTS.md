@@ -22,6 +22,17 @@ The proposed v0.1 MVP includes:
 
 Out of scope for v0.1 unless the task explicitly expands it: browser instrumentation, arbitrary traffic interception, cloud collection, LLM-based root-cause guessing, UI/dashboard, VS Code extension, automatic policy changes, data migration, dynamic write scenarios (POST/PATCH/PUT/DELETE), and remote/production replay.
 
+## User experience is an acceptance criterion
+
+Build a product that is convenient throughout installation, setup, configuration,
+daily use, troubleshooting and result presentation. Usability is part of feature
+completion, not optional polish. Prefer a guided entry point over copied paths,
+credentials and environment variables. Explain a test's purpose before asking the
+user to run it. Show expected behavior, observed evidence, meaning and an actionable
+next step in plain language; keep technical output optional. Clearly distinguish
+developer verification procedures, synthetic demos and diagnostics of a user's own
+application. Preserve uncertainty and security boundaries while simplifying flows.
+
 ## Repository layout (target architecture; verify actual files first)
 
 ```text
@@ -55,7 +66,7 @@ For schema/API-breaking changes:
 3. Add producer/consumer compatibility tests and migration or explicit rejection behavior.
 4. Get review from both workstreams before merging.
 
-Do not coordinate by assuming that two Codex conversations share state. The Git repository, PRs, issues, and reviewed design documents are the source of truth. Do not overwrite another maintainer's uncommitted work; inspect `git status` before editing. Avoid unrelated edits and destructive Git operations.
+Do not coordinate by assuming that independent work sessions share state. The Git repository, PRs, issues, and reviewed design documents are the source of truth. Do not overwrite another maintainer's uncommitted work; inspect `git status` before editing. Avoid unrelated edits and destructive Git operations.
 
 ## Non-negotiable security boundaries
 

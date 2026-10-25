@@ -1,38 +1,413 @@
-"""Human-readable output; arbitrary exception strings are never rendered."""
+"""Readable diagnostic evidence; JSON remains language-independent."""
 
 import json
-from typing import Any
+from typing import Any, Literal
 
 from rich.console import Console
+from rich.table import Table
+from rich.text import Text
+
+from rls_doctor import __version__
+
+Language = Literal["en", "ru"]
 
 
-def render(report: dict[str, Any], format: str = "console") -> None:
+def word(language: Language, en: str, ru: str) -> str:
+    return ru if language == "ru" else en
+
+
+FACTS_RU = {
+    "HTTP_OBSERVED": "Получены метаданные HTTP; наличие заголовка не подтверждает личность.",
+    "NETWORK_FAILURE_OBSERVED": "SDK зафиксировал сетевую ошибку без HTTP-статуса.",
+    "HTTP_STATUS_UNAVAILABLE": "HTTP-статус не получен; тип ошибки не установлен.",
+    "AUTHORIZATION_CONTEXT_UNVERIFIED": (
+        "Заголовок авторизации был; личность и роль не подтверждены."
+    ),
+    "MISSING_EXPECTED_AUTH": "Ожидалась авторизация пользователя, но заголовок отсутствовал.",
+    "EMPTY_RESULT_AMBIGUOUS": (
+        "Пустой ответ: возможны фильтры, отсутствие строки или RLS; причина не установлена."
+    ),
+    "LOCAL_ROLE_CONFIRMED": "Доверенная проверка локальной среды подтвердила исполняемую роль.",
+    "ROLE_UNCONFIRMED": "Исполняемая роль не подтверждена: проверка локальной среды недоступна.",
+    "UNEXPECTED_ANONYMOUS_CONTEXT": "Запрос выполнен анонимно, хотя ожидалась роль пользователя.",
+    "POSTGRES_VERSION_SUPPORTED": "Основная версия PostgreSQL поддерживается инспектором.",
+    "ELEVATED_INSPECTOR_ROLE": (
+        "Подключение инспектора имеет повышенные права; по возможности ограничьте их."
+    ),
+    "CATALOG_CONFIGURATION": (
+        "Метаданные таблицы, ролей, политик и прав прочитаны из каталогов PostgreSQL."
+    ),
+    "EXECUTED_ROLE_UNCONFIRMED": (
+        "Роль для анализа задана пользователем; это не подтверждение роли запроса."
+    ),
+    "SCHEMA_USAGE_MISSING": (
+        "У выбранной роли нет USAGE для схемы, необходимого для обычного SELECT."
+    ),
+    "SELECT_PRIVILEGE_MISSING": "У выбранной роли нет SELECT ни для таблицы, ни для её столбцов.",
+    "SELECT_COLUMN_SCOPED": (
+        "SELECT разрешён только для отдельных столбцов; сравните их с запросом."
+    ),
+    "RLS_DISABLED": "Для таблицы отключён RLS.",
+    "RLS_BYPASSED": (
+        "Выбранная роль обходит RLS из-за прав суперпользователя, BYPASSRLS или владельца."
+    ),
+    "RLS_APPLIES": "Обычный SELECT выбранной роли подчиняется RLS.",
+    "NO_PERMISSIVE_SELECT_POLICY": (
+        "Нет применимой разрешающей SELECT-политики для выбранной роли."
+    ),
+    "SELECT_POLICY_COMPOSITION": "Применимые политики объединяются по правилам PostgreSQL.",
+    "PREDICATES_UNEVALUATED": (
+        "Выражения политик не вычислялись; их влияние на строки не установлено."
+    ),
+    "ROW_VISIBILITY_UNKNOWN": "По метаданным нельзя установить видимость конкретных строк.",
+}
+
+CHECKS = {
+    "api_identity": ("Local API identity confirmed", "Контекст локального API подтверждён"),
+    "role_anon": ("Database role anon exists", "В БД есть роль anon"),
+    "role_authenticated": ("Database role authenticated exists", "В БД есть роль authenticated"),
+    "http_status": ("HTTP status", "HTTP-статус"),
+    "row_count": ("Row count", "Число строк"),
+    "error_class": ("Error class", "Класс ошибки"),
+    "executed_role": (
+        "Executed role matches expectation",
+        "Исполняемая роль соответствует ожиданию",
+    ),
+    "result_completeness": ("Complete response", "Полнота ответа"),
+    "postgres_inspection": ("Database inspection", "Анализ базы"),
+    "event_contract": ("Event format", "Формат события"),
+}
+
+
+def scalar(value: Any, language: Language) -> str:
+    if value is None:
+        return word(language, "unknown / not applicable", "не установлено / не применимо")
+    if isinstance(value, bool):
+        return word(language, "yes" if value else "no", "да" if value else "нет")
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    return word(language, "see JSON details", "подробности в JSON")
+
+
+def render(report: dict[str, Any], format: str = "console", language: Language = "en") -> None:
     console = Console(highlight=False, markup=False)
     if format == "json":
         console.print(json.dumps(report, indent=2, ensure_ascii=True), soft_wrap=True)
         return
-    console.print("RLS DOCTOR v0.1.0")
-    console.print(f"Result: {report.get('result', 'UNKNOWN')}")
-    for field in ("resource", "method"):
-        if field in report:
-            console.print(f"{field}: {report[field]}")
-    if "identity" in report:
-        console.print("Identity: " + json.dumps(report["identity"]))
-    if report.get("http"):
-        console.print("HTTP: " + json.dumps(report["http"]))
-    for check in report.get("checks", []):
-        console.print(f"  {check['result']}: {check['check']}")
-        if "expected" in check:
-            console.print(f"    expected: {check['expected']}; observed: {check['observed']}")
-    for fact in report.get("findings", report.get("conclusions", [])):
-        console.print(f"  {fact['evidence']}: {fact['summary']}")
-    if report.get("inspector"):
-        console.print("Postgres inspector: " + json.dumps(report["inspector"], indent=2))
-    elif "policies" in report:
-        console.print(json.dumps(report, indent=2))
-    for item in report.get("recommendations", []):
-        console.print("Next: " + item)
-    for item in report.get("limitations", []):
-        console.print("Limit: " + item)
-    if "error" in report:
-        console.print("Error: " + str(report["error"]["message"]))
+    console.print(f"RLS DOCTOR v{__version__}")
+    result = report.get("result", "UNKNOWN")
+    console.print(word(language, "Result: ", "Результат: ") + str(result))
+    meaning = {
+        "PASS": (
+            "This check matches its expectation; it is not a security certification.",
+            "Проверка соответствует ожиданию; это не общая оценка безопасности.",
+        ),
+        "FAIL": (
+            "Observed behavior differs from the expectation. Review the failed checks below.",
+            "Поведение отличается от ожидания. Ниже показаны нарушенные проверки.",
+        ),
+        "UNKNOWN": (
+            "Evidence is incomplete. A runtime outcome or root cause is not established.",
+            "Доказательств недостаточно. Поведение запроса или причина не установлены.",
+        ),
+        "ERROR": (
+            "The check did not finish. Resolve the setup or execution error and retry.",
+            "Проверка не завершена. Исправьте ошибку настройки или выполнения и повторите.",
+        ),
+    }.get(result, ("Evidence is incomplete.", "Доказательств недостаточно."))
+    console.print(word(language, *meaning))
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    for key, en, ru in (
+        ("run_id", "Run", "Проверка"),
+        ("event_id", "Event", "Событие"),
+        ("timestamp", "Time", "Время"),
+        ("resource", "Resource", "Ресурс"),
+        ("method", "Method", "Метод"),
+    ):
+        if key in report:
+            table.add_row(Text(word(language, en, ru)), Text(scalar(report[key], language)))
+    identity = report.get("identity") or {}
+    for key, en, ru in (
+        ("expected_role", "Expected role", "Ожидаемая роль"),
+        ("confirmed_role", "Confirmed role", "Подтверждённая роль"),
+    ):
+        if key in identity:
+            table.add_row(Text(word(language, en, ru)), Text(scalar(identity[key], language)))
+    http = report.get("http") or {}
+    if http or "http_status" in report:
+        table.add_row(
+            Text("HTTP"), Text(scalar(http.get("status", report.get("http_status")), language))
+        )
+    if "row_count" in http:
+        table.add_row(
+            Text(word(language, "Observed rows", "Получено строк")),
+            Text(scalar(http["row_count"], language)),
+        )
+    inspector = report.get("inspector") or (report if "policies" in report else {})
+    catalog = inspector.get("table") or {}
+    for key, en, ru in (
+        ("rls_enabled", "RLS enabled", "RLS включён"),
+        ("rls_forced", "FORCE RLS", "FORCE RLS"),
+    ):
+        if key in catalog:
+            table.add_row(Text(word(language, en, ru)), Text(scalar(catalog[key], language)))
+    if inspector:
+        table.add_row(
+            Text(word(language, "Policies inspected", "Политик прочитано")),
+            Text(str(len(inspector.get("policies", [])))),
+        )
+    privileges = inspector.get("privileges") or {}
+    for key, en, ru in (
+        ("schema_usage", "Schema USAGE", "USAGE схемы"),
+        ("table_select", "Table SELECT", "SELECT таблицы"),
+        ("any_column_select", "Any column SELECT", "SELECT хотя бы одного столбца"),
+    ):
+        if key in privileges:
+            table.add_row(Text(word(language, en, ru)), Text(scalar(privileges[key], language)))
+    console.print(table)
+
+    database = report.get("database") or inspector.get("database") or {}
+    if isinstance(database.get("database"), dict):
+        database = database["database"]
+    if "server_major" in database:
+        console.print("PostgreSQL: " + str(database["server_major"]))
+    checks = report.get("checks", [])
+    if checks:
+        comparisons = Table(title=word(language, "Expectation comparison", "Сравнение с ожиданием"))
+        for en, ru in (
+            ("Check", "Проверка"),
+            ("Expected", "Ожидалось"),
+            ("Observed", "Получено"),
+            ("Result", "Результат"),
+        ):
+            comparisons.add_column(word(language, en, ru))
+        for check in checks:
+            name = check["check"]
+            label = CHECKS.get(name, (name, name))
+            if name.startswith("contains_"):
+                label = ("Required test record present", "Нужная тестовая запись присутствует")
+            elif name.startswith("excludes_"):
+                label = ("Excluded test record present", "Запрещённая тестовая запись присутствует")
+            expected = check.get("expected")
+            observed = check.get("observed")
+            if name == "executed_role":
+                expected = identity.get("expected_role")
+                observed = identity.get("confirmed_role")
+            comparisons.add_row(
+                Text(word(language, *label)),
+                Text(scalar(expected, language)),
+                Text(scalar(observed, language)),
+                Text(check["result"]),
+            )
+        console.print(comparisons)
+
+    facts = (
+        [
+            *report.get("findings", []),
+            *report.get("conclusions", []),
+            *inspector.get("conclusions", []),
+        ]
+        if inspector is not report
+        else report.get("conclusions", [])
+    )
+    database_check = report.get("database") or {}
+    if isinstance(database_check, dict):
+        facts = [*facts, *database_check.get("conclusions", [])]
+    for evidence, en, ru in (
+        ("OBSERVED", "Observed facts", "Наблюдаемые факты"),
+        ("INFERRED", "Derived conclusions", "Выводы из фактов"),
+        ("UNVERIFIED", "Not established / possible causes", "Не установлено / возможные причины"),
+    ):
+        selected = [f for f in facts if f.get("evidence") == evidence]
+        if selected:
+            console.print("\n" + word(language, en, ru) + f" ({evidence})")
+            for fact in selected:
+                detail = fact.get("summary", "")
+                if language == "ru":
+                    detail = FACTS_RU.get(fact.get("code", ""), detail)
+                if report.get("event_id") and report.get("analysis_mode") != "capture_only":
+                    capture_context = {
+                        "HTTP_OBSERVED": (
+                            "HTTP metadata belongs to the captured request; the HTTP "
+                            "summary above is a separate local replay.",
+                            "HTTP-метаданные относятся к исходному событию; сводка HTTP "
+                            "выше относится к отдельному локальному replay.",
+                        ),
+                        "AUTHORIZATION_CONTEXT_UNVERIFIED": (
+                            "The captured header does not verify the original identity. "
+                            "The confirmed role above belongs only to the local replay.",
+                            "Заголовок в событии не подтверждает исходную личность. "
+                            "Подтверждённая роль выше относится только к локальному replay.",
+                        ),
+                    }
+                    if fact.get("code") in capture_context:
+                        detail = word(language, *capture_context[fact["code"]])
+                if inspector is not report and inspector and http:
+                    catalog_limits = {
+                        "EXECUTED_ROLE_UNCONFIRMED": (
+                            "Catalog inspection alone cannot verify runtime identity; "
+                            "see the request role above.",
+                            "Каталоги сами по себе не подтверждают личность запроса; "
+                            "роль запроса показана выше.",
+                        ),
+                        "ROW_VISIBILITY_UNKNOWN": (
+                            "Catalog inspection does not read rows; row counts and "
+                            "record assertions above come from REST replay.",
+                            "Инспектор не читает строки; число строк и проверки записей "
+                            "выше получены через REST replay.",
+                        ),
+                        "PREDICATES_UNEVALUATED": (
+                            "Policy expressions and hidden dependencies were not "
+                            "evaluated; replay covers only the explicit test scenario.",
+                            "Выражения политик и скрытые зависимости не вычислялись; "
+                            "replay проверяет только заданный сценарий.",
+                        ),
+                    }
+                    if fact.get("code") in catalog_limits:
+                        detail = word(language, *catalog_limits[fact["code"]])
+                console.print(Text("  • " + detail + " [" + fact.get("code", "") + "]"))
+    codes = {fact.get("code") for fact in facts}
+    actions: list[tuple[str, str]] = []
+    if codes & {"MISSING_EXPECTED_AUTH", "UNEXPECTED_ANONYMOUS_CONTEXT"}:
+        actions.append(
+            (
+                "Check that this request receives the intended user's session.",
+                "Проверьте передачу сессии нужного пользователя в этот запрос.",
+            )
+        )
+    if "SELECT_PRIVILEGE_MISSING" in codes:
+        actions.append(
+            (
+                "Review SELECT grants for the requested role; an RLS policy "
+                "does not grant SQL privileges.",
+                "Проверьте GRANT SELECT для выбранной роли: RLS-политика не выдаёт SQL-права.",
+            )
+        )
+    if "NO_PERMISSIVE_SELECT_POLICY" in codes:
+        actions.append(
+            (
+                "Review an applicable permissive SELECT policy and fixture ownership.",
+                "Проверьте применимую разрешающую SELECT-политику и владельцев тестовых строк.",
+            )
+        )
+    if "EMPTY_RESULT_AMBIGUOUS" in codes:
+        actions.append(
+            (
+                "Independently verify fixture existence, filters and "
+                "identity before attributing zero rows to RLS.",
+                "Отдельно проверьте наличие тестовой строки, фильтры и "
+                "личность: пустой ответ ещё не доказывает RLS.",
+            )
+        )
+    if any(
+        c.get("check", "").startswith("excludes_") and c.get("result") == "FAIL" for c in checks
+    ):
+        actions.append(
+            (
+                "Review the owner restriction in the SELECT policy and the "
+                "synthetic fixture ownership.",
+                "Проверьте ограничение по владельцу в SELECT-политике и владельцев тестовых строк.",
+            )
+        )
+    error = report.get("error")
+    if error:
+        console.print(Text(word(language, "Error: ", "Ошибка: ") + error["code"]))
+        console.print(Text(error["message"]))
+    session_hints = {
+        "REPORT_EXISTS": (
+            "Choose a new --output filename; existing files are never overwritten.",
+            "Выберите новое имя --output: существующие файлы не перезаписываются.",
+        ),
+        "REPORT_WRITE_FAILED": (
+            "Use a writable local folder on a filesystem supporting hard links.",
+            "Укажите доступную локальную папку на файловой системе с поддержкой жёстких ссылок.",
+        ),
+        "SESSION_OUTPUT_MODE": (
+            "Add --run when saving a session report with --output.",
+            "Для сохранения отчёта session через --output добавьте --run.",
+        ),
+        "SUPABASE_CLI_MISSING": (
+            "Install Supabase CLI or run demo.cmd once, then retry session.",
+            "Установите Supabase CLI или один раз запустите demo.cmd, затем повторите session.",
+        ),
+        "SUPABASE_PROJECT_MISSING": (
+            "Set --workdir to the folder containing supabase/config.toml.",
+            "Укажите в --workdir папку, содержащую supabase/config.toml.",
+        ),
+        "LOCAL_STACK_STATUS_FAILED": (
+            "Start the selected local Supabase stack; do not share raw status output.",
+            "Запустите выбранный локальный Supabase; не публикуйте вывод status с ключами.",
+        ),
+        "LOCAL_PROJECT_MISMATCH": (
+            "Review the configured API address and --workdir; no alternate API was used.",
+            "Сверьте адрес API в конфигурации и --workdir; другой API не использовался.",
+        ),
+        "TEST_IDENTITY_REQUIRED": (
+            "Use a valid local test token or explicitly approve one synthetic Auth user.",
+            "Используйте локальный тестовый токен или явно разрешите "
+            "создание тестового Auth-пользователя.",
+        ),
+        "TEST_IDENTITY_SETUP_FAILED": (
+            "Check local Auth signup/email-confirmation settings; no settings were changed.",
+            "Проверьте регистрацию и подтверждение почты в локальной Auth; настройки не менялись.",
+        ),
+        "SESSION_VARIABLE_NAMES": (
+            "Use separate RLS_DOCTOR_ credential variable names in the configuration.",
+            "Задайте в конфигурации отдельные имена переменных с префиксом RLS_DOCTOR_.",
+        ),
+    }
+    session_hint = session_hints.get(error["code"]) if error else None
+    recommendations = report.get("recommendations", [])
+    console.print("\n" + word(language, "Next steps", "Следующие действия"))
+    for en, ru in actions:
+        console.print(Text("  • " + word(language, en, ru)))
+    if session_hint:
+        console.print(Text(word(language, *session_hint)))
+    elif language == "ru":
+        console.print(
+            "Проверьте ожидаемую роль, владельцев тестовых строк, фильтры, GRANT и SELECT-политики."
+        )
+        if error:
+            console.print(
+                "Проверьте пути конфигурации и переменные локальных учётных "
+                "данных; не публикуйте их значения."
+            )
+    elif recommendations:
+        for item in recommendations:
+            console.print(Text("  • " + item))
+    else:
+        console.print(
+            word(
+                language,
+                "Review failed checks and catalog findings; use --format json "
+                "for structured details.",
+                "Сравните проверки и факты каталога; --format json показывает "
+                "структурированные подробности.",
+            )
+        )
+    console.print("\n" + word(language, "Diagnostic limits", "Ограничения диагностики"))
+    if language == "en":
+        for item in [
+            *report.get("limitations", []),
+            *(inspector.get("limitations", []) if inspector is not report else []),
+        ]:
+            console.print(Text("  • " + item))
+    else:
+        console.print(
+            "Наличие заголовка не подтверждает роль. Пустой ответ не доказывает запрет RLS."
+        )
+        console.print(
+            "Выражения политик не вычисляются; по отчёту нельзя объявить приложение безопасным."
+        )
+        if report.get("analysis_mode") == "capture_only":
+            console.print(
+                "Офлайн-анализ: сеть, воспроизведение запроса и база данных не использовались."
+            )
+    console.print(
+        word(
+            language,
+            "Technical details: add --format json.",
+            "Технические подробности: добавьте --format json.",
+        )
+    )

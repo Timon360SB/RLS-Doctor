@@ -270,3 +270,23 @@ def test_response_memory_and_encoding_boundaries(encoding: bool) -> None:
             bounded_json(client, "http://127.0.0.1:54321", {}, limit=32)
     assert exc.value.code == ("RESPONSE_ENCODING" if encoding else "RESPONSE_LIMIT")
     assert "TOPSECRET" not in str(exc.value)
+
+
+def test_custom_table_schema_does_not_redirect_the_trusted_public_probe(
+    config: ProjectConfig,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "/rpc/" in request.url.path:
+            if request.headers.get("accept-profile") != "public":
+                return httpx.Response(404, json={"code": "PGRST202"})
+            return response(request)
+        assert request.headers["accept-profile"] == "private"
+        return response(request)
+
+    report = replay(
+        scenario(request={"resource": "documents", "schema": "private"}),
+        config,
+        transport=httpx.MockTransport(handler),
+    )
+    assert report["result"] == "PASS"
+    assert report["identity"]["confirmed_role"] == "authenticated"

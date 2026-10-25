@@ -94,7 +94,7 @@ def test_integration_requires_executed_tests_without_skips(
 
     monkeypatch.setattr(e2e.subprocess, "run", result)
     if accepted:
-        e2e.run_integration_suite("synthetic-local-dsn")
+        assert e2e.run_integration_suite("synthetic-local-dsn") == summary
     else:
         with pytest.raises(DoctorError):
             e2e.run_integration_suite("synthetic-local-dsn")

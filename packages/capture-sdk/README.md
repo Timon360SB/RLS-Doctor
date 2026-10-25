@@ -1,6 +1,6 @@
 # RLS Doctor Capture SDK
 
-Node.js 22/24 SDK for opt-in Supabase REST GET metadata. Capture is disabled by
+Node.js 22.12+/24 SDK for opt-in Supabase REST GET metadata. Capture is disabled by
 default. There is no telemetry service, global patch, token decoding, request
 retransmission, or implicit network destination.
 
@@ -10,7 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const captureFetch = createCaptureFetch(fetch, {
   enabled: true,
-  allowedOrigin: 'http://127.0.0.1:54321',
+  allowedOrigin: new URL(localUrl).origin,
   resources: ['documents'],
   maxEvents: 100,
   maxDurationMs: 300_000,
@@ -20,8 +20,15 @@ const captureFetch = createCaptureFetch(fetch, {
 const client = createClient(localUrl, localAnonKey, {
   global: { fetch: captureFetch },
 });
-// Later: disable capture, including still-pending results.
-captureFetch.stop();
+// Run your normal application request through this client.
+// Handle its result/errors as usual; capture does not change them.
+await client.from('documents').select('id', { count: 'exact' });
+```
+
+When the diagnostic window is finished, explicitly stop capture:
+
+```ts
+captureFetch.stop(); // also disables metadata for still-pending results
 ```
 
 Supply application credentials from your local environment; never put them in
@@ -108,3 +115,9 @@ separate limits and are not a filesystem quota.
 
 Browser support and arbitrary writes are outside v0.1. A custom sink is user
 code: review it before sending even sanitized metadata anywhere.
+
+
+Schema v1 records the REST resource, not `Accept-Profile` or a verified database
+schema/identity. A custom-schema application still configures `db.schema` in
+supabase-js; a diagnostic replay must declare its schema and synthetic values
+separately. See the [installed-package task-board example](../../examples/task-board/README.md).

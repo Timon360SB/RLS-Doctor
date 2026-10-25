@@ -19,10 +19,37 @@
   flags; it cannot evaluate arbitrary functions or establish intent/row visibility.
 - Views, foreign tables, hidden function dependencies and partition/inheritance
   entry-point behavior need separate design and runtime checks.
-- PostgreSQL 16/17/18 branches are selected by the inspector; only 17.10 has been
-  exercised in real database integration here. Node 22/Python 3.13 CI and a complete
-  Supabase Docker run remain unexecuted locally. See verification.md.
+- PostgreSQL 16/17/18 branches are selected by the inspector. Real regression
+  runs passed on PostgreSQL 16.15, 17.10, Supabase 17.11 and PostgreSQL 18.6.
+  These observations cover the tested versions and scenarios, not every minor release.
+  Complete local Supabase E2E passes; fresh remote CI for the latest changes,
+  clean-machine onboarding and independent review remain pending. See verification.md.
+- Guided init writes local configuration and synthetic expectations only. It does
+  not collect credentials or install a trusted identity probe into an application.
+  Without such a probe, executed role remains unconfirmed and replay may return
+  UNKNOWN. Row counts alone do not prove exclusion of another user's records.
 - Console and JSON only. No web UI, editor extension, writes, automatic fixes or
   broad security certification. No two-human review or independent adoption claim.
 - File modes protect new POSIX capture files; Windows needs appropriate ACLs.
   Hostile concurrent directory replacement is outside the filesystem boundary.
+
+- Managed session reads credentials only from a selected running local Supabase
+  CLI project whose destination matches the approved configuration. It does not
+  install system prerequisites or start/reset the user's stack automatically.
+- Synthetic Auth signup is explicit, may require local email-confirmation setup,
+  and does not prepare application rows. Accounts are not automatically deleted.
+  Existing local test-token references remain available; privileged API keys are
+  rejected. No runtime identity assurance is added without a trusted probe.
+
+- Supabase CLI/Docker Desktop may publish the local fixture/practice API and
+  database ports on all host interfaces. Numeric-loopback replay limits outbound
+  destinations; it does not restrict Docker's inbound port publishing. A dedicated
+  bridge default binding was tested here and did not override that behavior.
+  Use this synthetic environment only on a trusted development computer/network;
+  custom host firewall/network configuration remains operator-managed.
+
+- Event v1 identifies a REST resource but does not record the selected database
+  schema/profile. Replay schema and filter values remain separately declared;
+  linking an event by resource does not prove the original schema or caller.
+  The separate task-board app exercises custom-schema routing locally, not
+  reconstruction of an original request or independent third-party adoption.

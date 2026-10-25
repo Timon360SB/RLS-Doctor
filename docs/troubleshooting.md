@@ -20,3 +20,15 @@ Sanitized bug reports should include command/version, result code, synthetic
 scenario and fixed diagnostic codes. Exclude tokens, keys, DSNs, query values,
 server error bodies and customer data. Do not enable verbose third-party logs
 around secrets just to obtain additional context.
+
+
+| Report export code | Safe next step |
+| --- | --- |
+| REPORT_EXISTS | Choose a new --output filename; existing files are never replaced. |
+| REPORT_WRITE_FAILED | Use a writable local folder/filesystem supporting hard links; check available storage and permissions. |
+| REPORT_LIMIT | Reduce the diagnostic scope; the generated report exceeds 1 MiB. |
+| SESSION_OUTPUT_MODE | Add --run; one saved session report represents one execution. |
+
+Doctor checks required roles directly in catalog metadata; application tables
+may live outside public. A missing required role yields FAIL. An opted-out or
+unconfirmed identity probe retains UNKNOWN even when role availability passes.
