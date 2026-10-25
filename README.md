@@ -34,6 +34,29 @@ See what happened, what the evidence supports, and what to check next.
 
 **A `200` response with `[]` does not prove an RLS denial.** Missing rows, filters and identity context can produce the same symptom. Uncertainty stays visible.
 
+## Guided Windows demo
+
+Open PowerShell in the repository and run:
+
+```powershell
+.\demo.cmd
+```
+
+The launcher checks tools, prepares locked dependencies and starts local
+containers. Choose a scenario in the menu to compare expected access with
+observed behavior. Reports explain the result and next step, without copying
+credentials or interpreting raw JSON. Only synthetic fixtures are used; this
+does not test your application.
+
+Requires Docker Desktop with a running Linux engine, Node.js 22.12+/24 and uv.
+Missing system tools are explained rather than installed silently. The first
+image download can take several minutes. Do not use concurrent fixture sessions.
+
+Stop: `.\demo.cmd -Stop`. Run every demo without the menu:
+`.\demo.cmd -Check`. Russian: `.\demo.cmd -Language ru`.
+Exiting without stopping keeps Docker running; stopping preserves local data.
+The demo is separate from the complete E2E suite.
+
 ## Quick start
 
 Try SDK → JSON → Python without running a database.

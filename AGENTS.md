@@ -22,6 +22,17 @@ The proposed v0.1 MVP includes:
 
 Out of scope for v0.1 unless the task explicitly expands it: browser instrumentation, arbitrary traffic interception, cloud collection, LLM-based root-cause guessing, UI/dashboard, VS Code extension, automatic policy changes, data migration, dynamic write scenarios (POST/PATCH/PUT/DELETE), and remote/production replay.
 
+## User experience is an acceptance criterion
+
+Build a product that is convenient throughout installation, setup, configuration,
+daily use, troubleshooting and result presentation. Usability is part of feature
+completion, not optional polish. Prefer a guided entry point over copied paths,
+credentials and environment variables. Explain a test's purpose before asking the
+user to run it. Show expected behavior, observed evidence, meaning and an actionable
+next step in plain language; keep technical output optional. Clearly distinguish
+developer verification procedures, synthetic demos and diagnostics of a user's own
+application. Preserve uncertainty and security boundaries while simplifying flows.
+
 ## Repository layout (target architecture; verify actual files first)
 
 ```text

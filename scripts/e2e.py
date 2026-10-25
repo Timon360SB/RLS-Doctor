@@ -172,6 +172,22 @@ def run_integration_suite(dsn: str) -> None:
     )
 
 
+def fixture_integration_dsn(dsn: str) -> str:
+    """Use the fixture admin only for creating disposable PostgreSQL test roles.
+
+    Supabase's ordinary postgres login is deliberately not a superuser. This
+    opt-in test harness uses the local admin; diagnostics keep the ordinary DSN.
+    """
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    require(os.environ.get("RLS_DOCTOR_ALLOW_FIXTURE_SETUP") == "1", "SETUP_CONSENT_REQUIRED")
+    params = conninfo_to_dict(validate_database_dsn(dsn, [54322]))
+    require(params.get("user") == "postgres", "UNEXPECTED_FIXTURE_DATABASE_USER")
+    params["user"] = "supabase_admin"
+    params["hostaddr"] = params["host"]
+    return make_conninfo(**params)
+
+
 def main() -> None:
     require(sys.argv[1:] == ["--status-stdin"], "STATUS_STDIN_REQUIRED")
     raw = sys.stdin.read(65537)
@@ -301,7 +317,7 @@ def main() -> None:
     )
 
     # Run real PostgreSQL regression suite using credentials only in child env.
-    run_integration_suite(dsn)
+    run_integration_suite(fixture_integration_dsn(dsn))
     print("PASS real PostgreSQL inspector integration suite")
 
 

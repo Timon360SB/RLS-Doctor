@@ -1,4 +1,4 @@
-# Verification record — local baseline 2026-10-23; follow-up 2026-10-24
+# Verification record — local baseline 2026-10-23; follow-up through 2026-10-25
 
 This records executed local checks and a dated inspection of remote CI. It does
 not announce a release, an entirely passing workflow, production support,
@@ -137,19 +137,15 @@ event and returned UNKNOWN / exit 2 with HTTP_OBSERVED, MISSING_EXPECTED_AUTH
 and EMPTY_RESULT_AMBIGUOUS. This is offline evidence; full Supabase E2E remains
 unverified and Docker remains postponed.
 
-## Still unverified / release blockers
+## Still unverified / release blockers — updated 2026-10-25
 
-1. Full Supabase replay E2E remains unverified. The remote run failed as described
-   above; the local compatibility fix has not run in a new workflow. Docker installation is postponed and
-   Supabase CLI is absent on this Windows machine, so a complete local rerun
-   could not be performed.
-2. The four passing remote matrix jobs apply to `216c8b6`, before this local fix.
-   Commit and push the reviewed change, then verify a new complete workflow.
-   No new push, PR, tag, release or package publication was performed by this fix.
-3. Local Node 24/Python 3.12 checks remain the baseline; PostgreSQL 17.10
-   integration was rerun on 2026-10-24 through the strengthened runner.
-   Remote CI additionally exercised Node 22 and Python 3.13. PostgreSQL 16/18
-   still require actual integration runs before compatibility claims.
+1. The full local Supabase E2E now passes (see below). Remote CI has not been
+   rerun for these changes; the earlier remote matrix belongs to `216c8b6`.
+2. A fresh-machine installation has not been reproduced. The Windows launcher
+   was exercised on this configured computer, including setup cancellation,
+   RU menu selection, invalid input, all scenarios, stopping and restarting.
+3. Local Node 24 / Python 3.12 and PostgreSQL 17 remain the baseline.
+   PostgreSQL 16/18 require actual integration runs before compatibility claims.
 4. A second real maintainer must review shared contracts/security and independently
    reproduce a clean-machine demonstration before accepting the full MVP criteria.
 5. No general static evaluation of policy SQL, writes, views, browser SDK or remote
@@ -157,6 +153,35 @@ unverified and Docker remains postponed.
 
 ## Recommended next work
 
-Commit the reviewed API-key fix and rerun the supplied Supabase CI workflow.
-Confirm all replay assertions and real inspector tests pass, then obtain
-independent maintainer review before tagging a stable 0.1.0 release.
+Review the changes, rerun remote CI after the maintainers push them, and test
+on a clean Windows machine. Next simplify configuration for a user's own local
+project; the guided demo currently uses only the supplied synthetic fixtures.
+
+## Guided demo and actual Docker E2E — 2026-10-25
+
+Docker Desktop 4.96.3 / Engine 29.9.2 with WSL2 successfully started the
+four-service `rls-doctor-fixtures` stack on Windows: PostgreSQL 17.11.0.004,
+Auth, PostgREST and Kong. The guided demo's six synthetic scenarios produced
+their intended PASS/FAIL outcomes. English and Russian reports were exercised.
+
+The complete `scripts/e2e.py --status-stdin` run exited 0: actual supabase-js
+capture, schema validation, both test identities, missing authentication,
+default deny, missing grant, intentional isolation failure, nonexistent-row
+ambiguity, invalid-token rejection and the real PostgreSQL inspector suite.
+The normal `postgres` fixture login is not a superuser. Only the separately
+approved integration fixture setup uses `supabase_admin` at the validated
+numeric loopback destination; diagnostic inspection keeps the ordinary login.
+The runner still rejects skipped or incomplete integration evidence.
+
+This supersedes earlier local Docker/WSL and pending-local-E2E blockers.
+It does not establish remote CI success, clean-machine onboarding, compatibility
+with additional database versions or independent maintainer review. The guided
+demo uses synthetic data and does not diagnose the user's own application.
+
+Final regression checks for this change: 118 non-integration Python tests passed
+(8 integration tests deselected in that separate unit invocation); Ruff format
+and lint passed; strict mypy passed for 21 source files. The complete E2E above
+separately executes the actual PostgreSQL integration tests without skips.
+The Windows launcher smoke covered declining preparation, RU menu input including
+an invalid choice, individual positive/negative scenarios, all scenarios, exit
+without stopping, `-Stop` with data preservation, and an EN `-Check` restart.

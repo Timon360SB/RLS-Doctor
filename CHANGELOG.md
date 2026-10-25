@@ -2,6 +2,11 @@
 
 ## Unreleased — 0.1.0 implementation
 
+- One-command Windows demo launcher with dependency checks, pinned Supabase CLI,
+  automatic fixture setup, bilingual scenario menu and human-readable reports.
+- Separate approved local fixture admin connection for PostgreSQL role-creation
+  integration tests; ordinary diagnostic connections retain their original rights.
+
 - Opt-in Node Fetch wrapper and bounded, private JSON event sink.
 - Shared v1 event schema, strict Python consumer and contract tests.
 - Typed CLI: init, validate, analyze, doctor, inspect and replay.
