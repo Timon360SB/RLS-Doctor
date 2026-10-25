@@ -482,3 +482,44 @@ Observed checks:
 session_check.py and task_board_check.py retain these assertions for CI. The
 current remote workflow has not run. Independent review/reproduction and clean
 Windows installation remain required release gates; the source is still a preview.
+
+
+## Remote baseline and audited CI preview handoff — 2026-10-25
+
+GitHub run https://github.com/Timon360SB/RLS-Doctor/actions/runs/40178244545
+completed successfully for exact commit a91c9d5973e048b331fd41fff70265f3304ae085.
+All eight jobs were read back as completed/success: all four Node 22/24 × Python
+3.12/3.13 Linux pairs, Windows Node 22/Python 3.13, real Supabase/PostgreSQL E2E
+including session export and installed task-board app, and PostgreSQL 16/18.
+The workflow was triggered by the user's push; no dispatch/rerun/push was performed
+by this work. This confirms that baseline, not subsequent working-tree changes.
+
+Added explicit --github-output packaging handoff and a pinned upload-artifact
+v7.0.2 workflow step. Its official action metadata uses node24; only the hosted
+Linux checks matrix uses this new step. Artifacts are named by full source SHA,
+Node/Python pair and run attempt, retained seven days, and restricted to the exact
+verified artifact directory. The helper requires clean source matching GITHUB_SHA,
+rejects extra files/directories/links and modified hashes/checksums, and refuses
+CI metadata destinations inside the package directory. Local context is rejected
+before build when the explicit CI-only flag is used.
+
+The first strict bundle audit caught uv's generated .gitignore beside packages.
+Intermediate Python builds now stay in a separate python-build directory; only
+the explicit wheel/sdist are copied into the final export directory. A fresh full
+build/install check passed with exactly three archives plus SHA256SUMS/manifest.
+Verified local bundle: .rls-doctor/distribution-check-03ch956z/artifacts. It is a
+working-tree preview with honest dirty state, not a released or clean-source CI
+artifact. Actual new upload-step execution remains pending a subsequent commit/run.
+
+All 241 non-integration tests passed locally on Python 3.12/Node 24 and Python
+3.13/Node 22; eight integration tests were deselected in these invocations. New
+regressions cover modified/unexpected bundle contents, preserved CI step outputs,
+clean matching SHA, metadata isolation and explicit CI context. Ruff format/lint
+and strict mypy (25 package source files) passed. Workflow handoff/retention fields,
+the actual five-file bundle and EN/RU guide links were checked.
+
+Independent release-review checklists now record the exact candidate, tool
+versions, both languages, the 18-row lab, preserved-data restart, installed app
+counts/doctor/export and safe issue reporting. No second maintainer has been
+reported as having completed them. Clean Windows onboarding and independent human
+review/reproduction remain required; source/co-author metadata is not a substitute.

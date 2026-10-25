@@ -59,8 +59,18 @@ jobs:
       - name: Python unit, security and shared-contract tests
         run: uv run --project python pytest python/tests -m 'not integration'
       - name: Build, audit and execute installed Python and SDK distributions
-        # Local preview artifacts only. This does not publish to a registry.
-        run: uv run --project python python scripts/package_check.py
+        id: packages
+        # Only the audited package directory is eligible for the next step.
+        run: uv run --project python python scripts/package_check.py --github-output
+      - name: Retain audited preview packages
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: preview-${{ github.sha }}-node-${{ matrix.node }}-py-${{ matrix.python }}-attempt-${{ github.run_attempt }}
+          path: ${{ steps.packages.outputs.artifact_dir }}
+          if-no-files-found: error
+          retention-days: 7
+          # The explicit directory has exactly 3 packages + checksums/manifest.
+          include-hidden-files: true
 
   windows-unit:
     name: Windows Node 22 / Python 3.13

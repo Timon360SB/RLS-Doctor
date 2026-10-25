@@ -288,15 +288,21 @@ Recorded local evidence as of **2026-10-25**; exact runs and versions are in
 | Area | Recorded evidence |
 | --- | --- |
 | SDK | 46 local tests; real application capture and installed archive/file-sink checks |
-| Python / shared contract | 230 tests on Python 3.12.14/Node 24 and Python 3.13.17/Node 22.23.4 |
+| Python / shared contract | 241 tests on Python 3.12.14/Node 24 and Python 3.13.17/Node 22.23.4 |
 | PostgreSQL | Eight tests per recorded real integration run; version coverage includes 16/17/18 |
 | Local workflows | Full Supabase E2E, 18-row practice checklist and separate custom-schema app passed |
 | Direct export | All six diagnostic commands checked for file/stdout parity; live PASS/FAIL/UNKNOWN/ERROR exports passed |
 | Packaging | Wheel, sdist and SDK archive built/audited; installed SDK/CLI exercised together |
 | Code checks | TypeScript checks and recorded SDK lint/tests; latest Python formatting/lint and strict types passed |
 
-The 230-test invocation excludes the eight integration tests; those have separate
+The 241-test invocation excludes the eight integration tests; those have separate
 actual execution evidence. These records are not live CI badges.
+
+All eight jobs in [run 40178244545](https://github.com/Timon360SB/RLS-Doctor/actions/runs/40178244545)
+passed for `a91c9d5`. The subsequent audited preview-retention workflow changes
+require their own committed run. The workflow is configured to retain only three
+package archives, checksums and a matching-source manifest for seven days;
+[download and acceptance steps](docs/release-review.md) apply after that step passes.
 
 **Still required before release:** fresh GitHub Actions for the current changes,
 clean-machine Windows onboarding, and independent maintainer reproduction/review.
@@ -339,6 +345,7 @@ strict typing and CI instructions are in [Development](docs/development.md).
 | Setup and SDK | [Getting started](docs/getting-started.md) · [SDK API](packages/capture-sdk/README.md) · [Node example](examples/node-basic/README.md) |
 | Design and fixtures | [Architecture](docs/architecture.md) · [Fixtures](fixtures/README.md) · [Research](docs/research.md) |
 | Diagnostics | [Troubleshooting](docs/troubleshooting.md) · [Security](docs/security.md) · [Limitations](docs/limitations.md) |
+| Independent acceptance | [English](docs/release-review.md) · [Русский](docs/release-review.ru.md) |
 | Progress and release | [Readiness audit](docs/mvp-readiness.md) · [Verification](docs/verification.md) · [Releases](docs/releases.md) · [Changelog](CHANGELOG.md) |
 
 ## Contributing and license

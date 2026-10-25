@@ -49,10 +49,14 @@ precedence over the original documentation list; neither is restored.
    A filesystem without hard-link support returns REPORT_WRITE_FAILED rather than
    weakening the no-overwrite behavior. Hostile parent-directory replacement is
    outside the documented filesystem boundary.
-2. **Pending external evidence: fresh remote CI.** Maintainers must commit/push
-   the reviewed working tree and inspect every job. Historical green checks do
-   not establish a result for these changes.
-3. **Pending external evidence: clean Windows onboarding.** Follow the practice
+2. **Remote baseline verified; follow-up needs a fresh run.** All eight jobs in
+   [run 40178244545](https://github.com/Timon360SB/RLS-Doctor/actions/runs/40178244545)
+   passed for a91c9d5973e048b331fd41fff70265f3304ae085, including actual Supabase,
+   Windows, both compatibility jobs and all four runtime pairs. The subsequent
+   CI preview-retention changes need their own committed remote run; this green
+   baseline does not verify later code.
+3. **Pending external evidence: clean Windows onboarding.** Use
+   [the acceptance checklist](release-review.md) / [Русский](release-review.ru.md). Follow the practice
    guide in an ordinary terminal on a clean machine and record installation,
    paths, language, setup, successful/negative results and stop/restart behavior.
 4. **Pending human evidence: independent maintainer review/reproduction.** Review

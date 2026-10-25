@@ -36,8 +36,10 @@ Detailed requirement coverage and remaining release gates: [MVP audit](mvp-readi
 - Implemented/local pass: separate task-board sample application, installed SDK
   archive + CLI wheel, custom schema, two authenticated owners and anonymous
   access. This maintained example does not establish independent adoption.
-- Rerun remote CI after maintainers commit/push; local results do not establish
-  current remote status.
+- Remote CI passed all eight jobs for a91c9d5; subsequent preview-retention
+  changes require another committed run. Preserve exact-commit evidence.
+- Added EN/RU independent acceptance checklists and audited CI-preview retention;
+  the retention step is not remotely verified yet.
 - Obtain independent maintainer review and reproduction before release.
 - Publish packages/release only when separately authorized and ready. Preserve
   the user's removal of CONTRIBUTING and the pull-request template.

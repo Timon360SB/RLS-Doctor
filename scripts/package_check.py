@@ -1,7 +1,9 @@
 """Build and install local preview artifacts; never publish or include credentials."""
 
+import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -89,6 +91,82 @@ def require_command(args: list[str], *, cwd: Path = ROOT) -> subprocess.Complete
     return child
 
 
+def validate_preview(artifacts: Path) -> None:
+    """Only the three audited packages and two provenance files may leave CI."""
+    try:
+        if artifacts.is_symlink() or any(
+            path.is_symlink() or not path.is_file() for path in artifacts.iterdir()
+        ):
+            raise ValueError
+        manifest_path = artifacts / "manifest.json"
+        if manifest_path.stat().st_size > 65536:
+            raise ValueError
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        hashes = manifest["sha256"]
+        if (
+            manifest["preview_only"] is not True
+            or manifest["source_state"] != "working-tree"
+            or not isinstance(hashes, dict)
+            or len(hashes) != 3
+        ):
+            raise ValueError
+        names = set(hashes)
+        if any(
+            not re.fullmatch(r"[a-zA-Z0-9_.-]+", name) or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            for name, digest in hashes.items()
+        ):
+            raise ValueError
+        if (
+            sum(name.endswith(".whl") for name in names) != 1
+            or sum(name.endswith(".tar.gz") for name in names) != 1
+            or sum(name.endswith(".tgz") for name in names) != 1
+            or {path.name for path in artifacts.iterdir()}
+            != names | {"manifest.json", "SHA256SUMS"}
+        ):
+            raise ValueError
+        for name in names | {"manifest.json", "SHA256SUMS"}:
+            path = artifacts / name
+            if path.is_symlink() or not path.is_file():
+                raise ValueError
+        for name, digest in hashes.items():
+            if hashlib.sha256((artifacts / name).read_bytes()).hexdigest() != digest:
+                raise ValueError
+        checksums = (artifacts / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+        if len(checksums) != 3 or set(checksums) != {
+            f"{digest}  {name}" for name, digest in hashes.items()
+        }:
+            raise ValueError
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        raise DoctorError(
+            "PACKAGE_PREVIEW_CONTENTS",
+            "Preview package contents/checksums differ; no CI artifact path was exported.",
+        ) from None
+
+
+def emit_ci_path(artifacts: Path, output_file: Path) -> None:
+    """Explicit CI-only metadata handoff; never glob local runs or capture folders."""
+    validate_preview(artifacts)
+    manifest = json.loads((artifacts / "manifest.json").read_text(encoding="utf-8"))
+    expected_sha = os.environ.get("GITHUB_SHA", "")
+    if (
+        not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", expected_sha)
+        or manifest.get("git_head") != expected_sha
+        or manifest.get("dirty") is not False
+    ):
+        raise DoctorError(
+            "PACKAGE_CI_SOURCE", "CI artifacts require a clean matching source commit."
+        )
+    directory = str(artifacts.resolve())
+    if output_file.resolve().is_relative_to(artifacts.resolve()):
+        raise DoctorError("PACKAGE_CI_PATH", "CI metadata must stay outside the package directory.")
+    if any(char in directory for char in "\r\n\x00"):
+        raise DoctorError(
+            "PACKAGE_CI_PATH", "Invalid artifact directory; no CI output was written."
+        )
+    with output_file.open("a", encoding="utf-8", newline="\n") as handle:
+        handle.write("artifact_dir=" + directory + "\n")
+
+
 def check_distributions() -> Path:
     """Return audited preview artifacts after installed-package checks; never publish."""
     uv = shutil.which("uv")
@@ -107,7 +185,14 @@ def check_distributions() -> Path:
     artifacts.mkdir()
     print("Building Python and SDK preview packages...", flush=True)
     require_command([pnpm, "build"])
-    require_command([uv, "build", "--project", "python", "--out-dir", str(artifacts)])
+    python_build = run / "python-build"
+    require_command([uv, "build", "--project", "python", "--out-dir", str(python_build)])
+    # uv may add build metadata such as .gitignore. Export only explicit packages.
+    for pattern in ("*.whl", "*.tar.gz"):
+        built = list(python_build.glob(pattern))
+        if len(built) != 1 or not built[0].is_file() or built[0].is_symlink():
+            raise DoctorError("PACKAGE_FILENAME", "Expected one wheel and one source archive.")
+        shutil.copyfile(built[0], artifacts / built[0].name)
     require_command(
         [npm, "pack", "--ignore-scripts", "--json", "--pack-destination", str(artifacts)],
         cwd=ROOT / "packages/capture-sdk",
@@ -294,13 +379,26 @@ void response; void acceptEvent; wrapped.stop();
         ],
     }
     (artifacts / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    validate_preview(artifacts)
     print("Local preview artifacts and checksums: " + str(artifacts))
     print("No publication performed. Use only the files listed in manifest.json.")
     return artifacts
 
 
 def main() -> int:
-    check_distributions()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--github-output",
+        action="store_true",
+        help="Explicitly export the audited directory to the CI step output.",
+    )
+    args = parser.parse_args()
+    output = os.environ.get("GITHUB_OUTPUT") if args.github_output else None
+    if args.github_output and (os.environ.get("GITHUB_ACTIONS") != "true" or not output):
+        raise DoctorError("PACKAGE_CI_CONTEXT", "--github-output requires a GitHub Actions step.")
+    artifacts = check_distributions()
+    if output is not None:
+        emit_ci_path(artifacts, Path(output))
     return 0
 
 

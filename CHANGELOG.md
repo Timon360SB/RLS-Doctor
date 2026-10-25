@@ -2,6 +2,10 @@
 
 ## Unreleased — 0.1.0 implementation
 
+- Prepare audited CI preview artifacts with exact-commit provenance and seven-day
+  retention; reject extra/modified files and keep build metadata out of downloads.
+- Add bilingual independent release-candidate acceptance checklists.
+
 - Fix doctor environment checks for custom-schema applications by checking roles
   directly in read-only catalogs, independently of public application tables.
 - Save generated JSON reports with --output, including session --run; preserve
