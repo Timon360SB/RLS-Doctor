@@ -15,10 +15,14 @@ from rls_doctor.replay.scenarios import Scenario, ScenarioRequest
 from rls_doctor.reports.console import Language, word
 
 
-def ask[T](label: str, default: str | int, parse: Callable[[str], T], error: str) -> T:
+def ask[T](
+    label: str, default: str | int, parse: Callable[[str], T], error: str, *, hidden: bool = False
+) -> T:
     """Keep valid earlier answers; display only a fixed safe validation message."""
     while True:
-        raw = typer.prompt(label, default=str(default), type=str)
+        raw = typer.prompt(
+            label, default=str(default), type=str, hide_input=hidden, show_default=not hidden
+        )
         try:
             return parse(raw)
         except (ValueError, DoctorError):
@@ -61,7 +65,7 @@ def row_count(value: str) -> int | None:
     return integer(value, 0, 10000)
 
 
-def guided_files(language: Language) -> tuple[str, str]:
+def guided_files(language: Language, *, advanced: bool = False) -> tuple[str, str]:
     """Collect synthetic scenario expectations; approval remains off by default."""
 
     def say(en: str, ru: str) -> str:
@@ -138,6 +142,10 @@ def guided_files(language: Language) -> tuple[str, str]:
             "expect": {"status": status, "row_count": count},
         }
     )
+    if advanced:
+        from rls_doctor.cli.scenario_wizard import extend_scenario
+
+        scenario = extend_scenario(scenario, language)
     api_port = urlsplit(api).port
     assert api_port is not None
     env = LocalEnvironment(
@@ -147,11 +155,35 @@ def guided_files(language: Language) -> tuple[str, str]:
         resources=[resource],
         confirm_identity=False,
     )
+    if advanced:
+        typer.echo(
+            say(
+                "An identity probe is trusted test infrastructure: enable it only if you "
+                "reviewed the existing public.rls_doctor_identity function. Nothing is installed.",
+                "Пробник роли — доверенная тестовая инфраструктура. Включайте только после "
+                "проверки существующей public.rls_doctor_identity. Ничего не устанавливается.",
+            )
+        )
+        env.confirm_identity = typer.confirm(
+            say(
+                "Use that existing reviewed local identity probe?",
+                "Использовать этот существующий проверенный локальный пробник роли?",
+            ),
+            default=False,
+        )
     typer.echo(say("Review the destination and expectations:", "Проверьте адрес и ожидания:"))
     typer.echo(
         f"  {api} | PostgreSQL: {port} | {schema}.{resource} | {role} | HTTP {status} | "
         + (str(count) if count is not None else say("rows not compared", "строки не сравниваются"))
     )
+    if advanced:
+        typer.echo(
+            say("  Existing identity probe: ", "  Существующий пробник роли: ")
+            + say(
+                "enabled" if env.confirm_identity else "disabled",
+                "включён" if env.confirm_identity else "выключен",
+            )
+        )
     typer.echo(
         say(
             "Only proceed with synthetic data and local credentials. "
@@ -182,6 +214,8 @@ def guided_files(language: Language) -> tuple[str, str]:
 
 
 def initialize(directory: Path, contents: tuple[str, str]) -> None:
+    if any(len(content.encode("utf-8")) > 65536 for content in contents):
+        raise DoctorError("INIT_LIMIT", "Configuration/scenario exceeds 64 KiB; reduce its scope.")
     directory.mkdir(parents=True, exist_ok=True)
     paths = [directory / "rls-doctor.toml", directory / "documents.yaml"]
     if any(p.exists() or p.is_symlink() for p in paths):

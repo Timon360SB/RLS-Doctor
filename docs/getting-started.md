@@ -1,5 +1,7 @@
 # Getting started
 
+For the primary existing-database workflow, start with [catalog diagnosis](existing-database.md) / [Русский](existing-database.ru.md). The fixture/replay paths below are optional.
+
 Use Node.js 22.12+/24, pnpm 11.25.0, Python 3.12+ and uv 0.13.5. Local execution
 has been checked on all four combinations of Node 22.23.4 / 24.22.1 and
 Python 3.12.14 / 3.13.17. The local Supabase workflow and installed-package checks
@@ -172,3 +174,11 @@ uv run --project python rls-doctor replay documents.yaml --output .rls-doctor/re
 
 Use an approved synthetic scenario and local configuration as described above.
 See [the readiness audit](mvp-readiness.md) for the remaining release gates.
+
+
+For optional scenario authoring, `init --interactive --advanced` adds projected
+columns, typed filters, required/forbidden records and error-class expectations.
+Values are hidden during entry and stored only in the confirmed local synthetic
+scenario. Columns used by assertions are included automatically. An existing
+reviewed public identity probe can be explicitly enabled; nothing is installed.
+The simple wizard and read-only diagnose workflow do not depend on this mode.

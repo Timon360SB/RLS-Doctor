@@ -2,6 +2,12 @@
 
 ## Unreleased — 0.1.0 implementation
 
+- Add primary diagnose command for existing PostgreSQL/Supabase tables and roles,
+  without fixtures, YAML, SDK or an identity probe. Use private DSN input, exact
+  host approval, read-only catalogs and verified TLS outside numeric loopback.
+- Add optional --advanced guided scenario details: projection, typed filters,
+  presence/exclusion checks and explicit use of an existing reviewed local probe.
+
 - Prepare audited CI preview artifacts with exact-commit provenance and seven-day
   retention; reject extra/modified files and keep build metadata out of downloads.
 - Add bilingual independent release-candidate acceptance checklists.

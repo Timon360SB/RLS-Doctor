@@ -5,7 +5,16 @@ from independent review, clean-machine verification and publication.
 
 Detailed requirement coverage and remaining release gates: [MVP audit](mvp-readiness.md).
 
-## P0 — diagnostic correctness and usable local workflow
+## P0 — existing-database diagnosis first
+
+User direction: the product's purpose is useful diagnosis of existing databases,
+not creating fixtures/scenarios. The primary command is now diagnose: explicit
+host approval, private DSN input, read-only access-control catalogs and findings.
+Remote catalog access requires verified TLS; remote replay remains excluded.
+No actual hosted/customer connection has been verified yet. Local scenarios,
+lab/SDK capture and the optional detailed wizard support this primary workflow.
+
+## Implemented local supporting workflow
 
 - Implemented and locally verified: opt-in SDK, shared event contract, offline
   analysis, catalog inspection, explicit synthetic GET replay and full fixture E2E.

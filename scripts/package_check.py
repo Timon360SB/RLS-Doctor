@@ -292,6 +292,15 @@ process.stdout.write(JSON.stringify(events[0]));
         raise DoctorError(
             "PACKAGE_VERSION", "Installed CLI version does not match project metadata."
         )
+    diagnosis_help = require_command(
+        [str(python), "-m", "rls_doctor.cli.main", "diagnose", "--help"], cwd=consumer
+    ).stdout
+    if not all(
+        option in diagnosis_help for option in ("--host", "--approve-read-only", "--connection-env")
+    ):
+        raise DoctorError(
+            "PACKAGE_DIAGNOSE", "Installed CLI is missing existing-database diagnosis."
+        )
     source_sdk = json.loads(
         (ROOT / "packages/capture-sdk/package.json").read_text(encoding="utf-8")
     )
@@ -373,6 +382,7 @@ void response; void acceptEvent; wrapped.stop();
             "wheel-install",
             "installed-sdk-types",
             "installed-versions",
+            "installed-diagnose-help",
             "installed-file-sink",
             "installed-event-contract",
             "offline-unknown",

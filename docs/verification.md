@@ -523,3 +523,28 @@ versions, both languages, the 18-row lab, preserved-data restart, installed app
 counts/doctor/export and safe issue reporting. No second maintainer has been
 reported as having completed them. Clean Windows onboarding and independent human
 review/reproduction remain required; source/co-author metadata is not a substitute.
+
+
+## Existing databases first - 2026-10-26
+
+Added `diagnose` for an explicitly approved existing PostgreSQL/Supabase table
+and role. No fixture setup, scenario, SDK or identity probe is required. The
+connection reads access-control catalogs in a bounded read-only transaction;
+customer table rows and policy expressions are not collected. Runtime visibility
+remains UNKNOWN even when concrete catalog problems are established.
+
+Connection tests cover approval before DNS, exact hostname matching, verified
+remote TLS, rejected connection overrides, and hidden credential input. A live
+local run inspected existing documents, no_grant_documents and leaky_documents
+without fixture preparation, new users, writes or application HTTP requests.
+Missing SELECT was observed. Actual remote TLS/database access remains unverified.
+
+The optional advanced scenario wizard supports typed filters and row assertions;
+it remains a supporting local workflow. All 271 non-integration Python tests
+passed on Python 3.12/Node 24 and Python 3.13/Node 22; eight integration tests were
+deselected. Ruff and strict mypy (27 package sources) passed.
+
+Installed-package verification produced
+`.rls-doctor/distribution-check-qeyw2sv3/artifacts/manifest.json`, including
+installed-diagnose-help, installed-event-contract and offline-unknown checks.
+These are working-tree preview artifacts, not a release or current remote CI run.

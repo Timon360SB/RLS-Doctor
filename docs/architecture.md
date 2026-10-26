@@ -20,8 +20,10 @@ reports. A trusted local RPC can confirm the actual database role in the replay
 context; an unconfirmed role stays unknown. GET RPC execution is excluded from
 user scenarios; the sole identity probe is hard-coded in the local fixture.
 
-Inspection uses Psycopg 3 read-only catalog queries on a separately allowlisted
-local Postgres endpoint. SQL privileges are distinct from policy predicates.
+The primary diagnose workflow uses Psycopg 3 read-only catalog queries on an
+explicitly approved existing PostgreSQL/Supabase connection. Remote catalog
+connections require exact host matching and verify-full TLS; this does not permit
+remote HTTP replay. No scenarios, fixtures, SDK or identity probe are required. SQL privileges are distinct from policy predicates.
 Reports separate evidence (OBSERVED/INFERRED/UNVERIFIED) from assertion results
 (PASS/FAIL/UNKNOWN/ERROR). The inspector does not evaluate arbitrary predicates.
 No diagnostics execute schema changes. Fixture setup is a separate explicit step.

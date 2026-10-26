@@ -1,3 +1,8 @@
+> Product direction (2026-10-26): diagnosing existing databases is the primary
+> workflow. Scenario and fixture checks below are supporting verification, not
+> prerequisites for users. The new catalog-only `diagnose` command has local
+> database evidence; actual remote TLS/database validation is still pending.
+
 # MVP readiness audit
 
 Scope: specification.md sections 6–8, 14–18 and 20–23. Status as of 2026-10-25.

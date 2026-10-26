@@ -138,7 +138,7 @@ def _with_database[T](dsn: str, operation: Callable[[psycopg.Connection[dict[str
         failure = InspectorError(
             "POSTGRES_INSPECTION_FAILED",
             "PostgreSQL catalog inspection failed. "
-            "Check the approved local endpoint and catalog permissions.",
+            "Check the approved database endpoint and catalog permissions.",
             state,
         )
     # Raise outside the except block so an unsafe database exception is not chained.
@@ -317,14 +317,14 @@ def _conclusions(
             "UNVERIFIED",
             "No row result was observed. An empty HTTP result alone cannot identify "
             "RLS as its cause.",
-            "Explicit local replay with synthetic fixtures is required",
+            "Catalog metadata does not observe application rows or runtime authorization context",
         )
     )
     return rls_applies, results
 
 
 def inspect_table(dsn: str, schema: str, table: str, role: str) -> dict[str, Any]:
-    """Inspect a table for an explicit role on a prevalidated local DSN.
+    """Inspect a table for an explicit role on a prevalidated database DSN.
 
     Views, foreign tables, materialized views, and other relation kinds are
     intentionally unsupported; they require their own authorization semantics.

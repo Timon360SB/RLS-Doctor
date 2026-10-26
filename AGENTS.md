@@ -2,7 +2,9 @@
 
 ## Purpose
 
-RLS Doctor is an open-source developer tool for **diagnosing unexpected authorization behavior in Supabase applications**. The target workflow is: capture a minimal, sanitized description of an application's request → inspect the relevant PostgreSQL access configuration → reproduce an explicitly defined request in a controlled local Supabase environment → compare observed behavior with an explicit expectation → report evidence, uncertainty, and next steps.
+RLS Doctor is an open-source developer tool for **diagnosing access-control problems in existing PostgreSQL/Supabase databases**. The primary user workflow is: explicitly approve a database connection → choose an existing table and role → read access-control catalogs in a read-only transaction → explain concrete configuration findings, uncertainties and next steps. Users must not need synthetic fixtures, a YAML scenario, SDK integration or an identity probe to obtain catalog diagnostics.
+
+Request capture and explicit local synthetic replay are optional supporting workflows. Test scenarios validate behavior but are not the product's primary purpose. Existing-database catalog connections may be remote when explicitly approved, host-matched and protected by verify-full TLS. This exception does not enable remote application replay, customer-row collection, policy execution or automatic changes. Never present catalog-only findings as proof of actual row visibility.
 
 **This project is NOT** a generic RLS linter, an automatic SQL policy fixer, a security certification tool, or an invisible production traffic recorder. Existing tools (including pgrls, rlsautotest, pgTAP, and Supabase facilities) should be considered before duplicating functionality. Uniqueness and product–market fit are hypotheses to validate, not established facts.
 
@@ -17,7 +19,7 @@ The proposed v0.1 MVP includes:
 - TypeScript SDK integrating with a user-supplied `fetch` in `supabase-js`, initially targeting Node.js.
 - **Opt-in** collection of limited, sanitized metadata for supported Supabase REST **GET** requests.
 - Versioned diagnostic-event JSON Schema shared by the TypeScript and Python components.
-- Python CLI to validate events, inspect PostgreSQL RLS/privileges, run *explicitly configured* read scenarios against an isolated local Supabase instance, and produce console/JSON reports.
+- Python CLI to diagnose existing PostgreSQL/Supabase access settings through approved read-only catalog connections, validate events, optionally run explicit local synthetic scenarios, and produce console/JSON reports.
 - Local, reproducible fixtures and automated unit/integration/security tests.
 
 Out of scope for v0.1 unless the task explicitly expands it: browser instrumentation, arbitrary traffic interception, cloud collection, LLM-based root-cause guessing, UI/dashboard, VS Code extension, automatic policy changes, data migration, dynamic write scenarios (POST/PATCH/PUT/DELETE), and remote/production replay.
