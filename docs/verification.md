@@ -548,3 +548,33 @@ Installed-package verification produced
 `.rls-doctor/distribution-check-qeyw2sv3/artifacts/manifest.json`, including
 installed-diagnose-help, installed-event-contract and offline-unknown checks.
 These are working-tree preview artifacts, not a release or current remote CI run.
+
+
+## Existing database plus application metadata - 2026-10-26
+
+`diagnose --event` combines validated capture observations and the selected
+existing-table catalog inspection. Resource mismatch/invalid input is rejected
+before approval/DNS/connection; endpoint, schema and executed-role linkage remain
+UNVERIFIED. No replay is enabled. The event contract and SDK remain unchanged.
+Catalog inspection time is explicitly distinguished from event capture time.
+
+All 278 non-integration Python tests passed (eight integration tests deselected).
+Seven new regressions cover both header contexts, bilingual presentation without
+replay claims, invalid/mismatching event rejection, privacy and preserved exports.
+Ruff and strict mypy (28 sources) passed; documentation links passed.
+
+Docker Engine was initially unavailable; after starting the installed Docker
+Desktop, a CLI run against the existing public.no_grant_documents table passed
+in EN, RU and JSON. It observed missing SELECT and paired that fact with a clearly
+synthetic saved 403 event lacking authorization. It retained the unverified link,
+UNKNOWN result and read-only transaction flag. This verifies real catalog access
+and report composition, not an end-to-end capture from a customer application.
+No fixture preparation, new users, data writes or application HTTP requests ran.
+Actual hosted/customer databases and remote TLS remain unverified.
+
+
+A fresh full package build/install check passed at
+`.rls-doctor/distribution-check-1ub3g0h2/artifacts`. Installed CLI help includes
+`--event`; archive/license/schema checks and installed SDK/CLI contract checks
+passed. This is a local working-tree preview, with no publication or remote CI
+execution claimed for these changes.

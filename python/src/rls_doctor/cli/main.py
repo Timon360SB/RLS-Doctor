@@ -21,6 +21,7 @@ from rls_doctor.replay.runner import replay as run_replay
 from rls_doctor.replay.scenarios import load_scenario
 from rls_doctor.reports.capture import capture_report
 from rls_doctor.reports.console import Language, render, word
+from rls_doctor.reports.database import database_capture_report, validate_capture_table
 from rls_doctor.reports.files import available, write_report
 
 app = typer.Typer(
@@ -353,6 +354,9 @@ def diagnose(
     role: Annotated[
         str, typer.Option(help="Database role whose access settings to inspect.")
     ] = "authenticated",
+    event: Annotated[
+        Path | None, typer.Option("--event", help="Optional sanitized application capture JSON.")
+    ] = None,
     connection_env: Annotated[
         str,
         typer.Option(
@@ -379,6 +383,9 @@ def diagnose(
             raise DoctorError("INVALID_IDENTIFIER", "Use simple schema.table and role identifiers.")
         if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,95}", connection_env):
             raise DoctorError("DATABASE_ENV_NAME", "Use a valid environment reference name.")
+        captured = load_event(event) if event is not None else None
+        if captured is not None:
+            validate_capture_table(captured, table)
         if not approve_read_only:
             if format == "json":
                 raise DoctorError(
@@ -420,6 +427,8 @@ def diagnose(
             "Existing database catalog diagnosis: no table rows, app queries "
             "or identity probes executed.",
         )
+        if captured is not None:
+            report = database_capture_report(captured, table, role, report)
     except (typer.Abort, KeyboardInterrupt):
         fail(
             DoctorError(

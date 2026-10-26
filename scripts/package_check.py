@@ -296,7 +296,8 @@ process.stdout.write(JSON.stringify(events[0]));
         [str(python), "-m", "rls_doctor.cli.main", "diagnose", "--help"], cwd=consumer
     ).stdout
     if not all(
-        option in diagnosis_help for option in ("--host", "--approve-read-only", "--connection-env")
+        option in diagnosis_help
+        for option in ("--host", "--approve-read-only", "--connection-env", "--event")
     ):
         raise DoctorError(
             "PACKAGE_DIAGNOSE", "Installed CLI is missing existing-database diagnosis."

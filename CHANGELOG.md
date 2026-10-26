@@ -2,6 +2,8 @@
 
 ## Unreleased — 0.1.0 implementation
 
+- Combine existing-database catalogs and sanitized request metadata with `diagnose --event`; show unverified database/schema/role linkage and bilingual next steps.
+
 - Add primary diagnose command for existing PostgreSQL/Supabase tables and roles,
   without fixtures, YAML, SDK or an identity probe. Use private DSN input, exact
   host approval, read-only catalogs and verified TLS outside numeric loopback.

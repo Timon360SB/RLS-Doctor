@@ -11,6 +11,9 @@ User direction: the product's purpose is useful diagnosis of existing databases,
 not creating fixtures/scenarios. The primary command is now diagnose: explicit
 host approval, private DSN input, read-only access-control catalogs and findings.
 Remote catalog access requires verified TLS; remote replay remains excluded.
+Optional `diagnose --event` now combines sanitized application metadata and
+selected catalog findings, with an explicit unverified endpoint/schema/role link.
+No replay or user-row queries are performed.
 No actual hosted/customer connection has been verified yet. Local scenarios,
 lab/SDK capture and the optional detailed wizard support this primary workflow.
 

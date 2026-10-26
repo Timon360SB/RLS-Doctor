@@ -41,6 +41,8 @@ or policies are modified. See [English](docs/existing-database.md) /
 [Русский](docs/existing-database.ru.md) for credentials, CA certificates and limits.
 This command needs Python/uv, not Docker/Node.js. The lab and replay below are optional.
 
+Attach a sanitized application event with `--event PATH_TO_EVENT.json` to view captured request metadata alongside catalog findings. The database/schema/runtime-role link remains unverified; no request is replayed.
+
 ## Why RLS Doctor
 
 A user sees an empty list. Another user unexpectedly sees someone else's record.
@@ -308,14 +310,14 @@ Recorded local evidence as of **2026-10-25**; exact runs and versions are in
 | Area | Recorded evidence |
 | --- | --- |
 | SDK | 46 local tests; real application capture and installed archive/file-sink checks |
-| Python / shared contract | 271 tests on Python 3.12.14/Node 24 and Python 3.13.17/Node 22.23.4 |
+| Python / shared contract | 278 tests on Python 3.12.14/Node 24 and Python 3.13.17/Node 22.23.4 |
 | PostgreSQL | Eight tests per recorded real integration run; version coverage includes 16/17/18 |
 | Local workflows | Full Supabase E2E, 18-row practice checklist and separate custom-schema app passed |
 | Direct export | All six diagnostic commands checked for file/stdout parity; live PASS/FAIL/UNKNOWN/ERROR exports passed |
 | Packaging | Wheel, sdist and SDK archive built/audited; installed SDK/CLI exercised together |
 | Code checks | TypeScript checks and recorded SDK lint/tests; latest Python formatting/lint and strict types passed |
 
-The 271-test invocation excludes the eight integration tests; those have separate
+The 278-test invocation excludes the eight integration tests; those have separate
 actual execution evidence. These records are not live CI badges.
 
 All eight jobs in [run 40178244545](https://github.com/Timon360SB/RLS-Doctor/actions/runs/40178244545)

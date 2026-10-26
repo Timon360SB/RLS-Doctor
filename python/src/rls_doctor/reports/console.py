@@ -59,6 +59,10 @@ FACTS_RU = {
     "PREDICATES_UNEVALUATED": (
         "Выражения политик не вычислялись; их влияние на строки не установлено."
     ),
+    "CAPTURE_DATABASE_LINK_UNVERIFIED": (
+        "Имена таблиц совпадают, но база, схема и роль исходного запроса не подтверждены. "
+        "Факты каталогов сами по себе не устанавливают причину этого запроса."
+    ),
     "ROW_VISIBILITY_UNKNOWN": "По метаданным нельзя установить видимость конкретных строк.",
 }
 
@@ -117,6 +121,14 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
     }.get(result, ("Evidence is incomplete.", "Доказательств недостаточно."))
     console.print(word(language, *meaning))
 
+    if report.get("analysis_mode") == "existing_database_and_capture":
+        console.print(
+            word(
+                language,
+                "Application request: saved metadata; no request was replayed.",
+                "Запрос приложения: сохранённые метаданные; повторного запроса не было.",
+            )
+        )
     table = Table(show_header=False, box=None, padding=(0, 2))
     for key, en, ru in (
         ("run_id", "Run", "Проверка"),
@@ -144,6 +156,10 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
             Text(word(language, "Observed rows", "Получено строк")),
             Text(scalar(http["row_count"], language)),
         )
+    existing_database = report.get("analysis_mode") in {
+        "existing_database_catalogs",
+        "existing_database_and_capture",
+    }
     inspector = report.get("inspector") or (report if "policies" in report else {})
     catalog = inspector.get("table") or {}
     for key, en, ru in (
@@ -226,7 +242,11 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
                 detail = fact.get("summary", "")
                 if language == "ru":
                     detail = FACTS_RU.get(fact.get("code", ""), detail)
-                if report.get("event_id") and report.get("analysis_mode") != "capture_only":
+                if (
+                    report.get("event_id")
+                    and not existing_database
+                    and report.get("analysis_mode") != "capture_only"
+                ):
                     capture_context = {
                         "HTTP_OBSERVED": (
                             "HTTP metadata belongs to the captured request; the HTTP "
@@ -243,7 +263,7 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
                     }
                     if fact.get("code") in capture_context:
                         detail = word(language, *capture_context[fact["code"]])
-                if inspector is not report and inspector and http:
+                if inspector is not report and inspector and http and not existing_database:
                     catalog_limits = {
                         "EXECUTED_ROLE_UNCONFIRMED": (
                             "Catalog inspection alone cannot verify runtime identity; "
@@ -287,16 +307,25 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
     if "NO_PERMISSIVE_SELECT_POLICY" in codes:
         actions.append(
             (
-                "Review an applicable permissive SELECT policy and fixture ownership.",
-                "Проверьте применимую разрешающую SELECT-политику и владельцев тестовых строк.",
+                "Review an applicable permissive SELECT policy for the selected role.",
+                "Проверьте применимую разрешающую SELECT-политику для выбранной роли.",
+            )
+        )
+    if "CAPTURE_DATABASE_LINK_UNVERIFIED" in codes:
+        actions.append(
+            (
+                "Confirm the application's database endpoint, exposed schema and executed role; "
+                "the event does not establish this link.",
+                "Сверьте адрес базы приложения, схему API и исполняемую роль: "
+                "событие не подтверждает эту связь.",
             )
         )
     if "EMPTY_RESULT_AMBIGUOUS" in codes:
         actions.append(
             (
-                "Independently verify fixture existence, filters and "
+                "Independently verify matching data, filters and "
                 "identity before attributing zero rows to RLS.",
-                "Отдельно проверьте наличие тестовой строки, фильтры и "
+                "Отдельно проверьте наличие подходящих данных, фильтры и "
                 "личность: пустой ответ ещё не доказывает RLS.",
             )
         )
@@ -364,6 +393,11 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
         console.print(Text("  • " + word(language, en, ru)))
     if session_hint:
         console.print(Text(word(language, *session_hint)))
+    elif language == "ru" and existing_database:
+        console.print(
+            "Сверьте выбранную роль, права схемы и таблицы, применимые политики "
+            "и фактический контекст запроса приложения."
+        )
     elif language == "ru":
         console.print(
             "Проверьте ожидаемую роль, владельцев тестовых строк, фильтры, GRANT и SELECT-политики."
@@ -400,6 +434,16 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
         console.print(
             "Выражения политик не вычисляются; по отчёту нельзя объявить приложение безопасным."
         )
+        if existing_database:
+            console.print(
+                "Прочитаны только каталоги выбранной базы. Строки таблицы, "
+                "запросы приложения и пробники личности не выполнялись."
+            )
+            if report.get("event_id"):
+                console.print(
+                    "HTTP относится к сохранённому запросу; повторного запроса не было. "
+                    "Настройки базы могли измениться после записи события."
+                )
         if report.get("analysis_mode") == "capture_only":
             console.print(
                 "Офлайн-анализ: сеть, воспроизведение запроса и база данных не использовались."

@@ -52,3 +52,13 @@ only disposable local stacks. Signed claims confirm token validation, not policy
 intent. A server-side identity probe is meaningful only in trusted local fixtures.
 Empty results never prove RLS caused exclusion. Fixture SQL is synthetic and
 must never be applied to production. Full Supabase E2E requires Docker.
+
+
+### Existing-database request context
+
+`diagnose --event` validates a sanitized capture and requires its resource name
+to match the selected table before opening a connection. It combines independent
+capture observations and read-only catalog findings, without replay. Event v1
+has no database endpoint or schema; the endpoint/schema/runtime-role association
+is explicitly UNVERIFIED. Catalog timestamps may differ from capture timestamps.
+No event schema or SDK changes are required; filters retain names/operators only.

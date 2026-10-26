@@ -65,6 +65,28 @@ uv run --project python rls-doctor diagnose public.orders --host YOUR_DATABASE_H
 JSON mode never prompts for approval or credentials. Use --connection-env NAME for
 a different environment reference. Existing output files are preserved.
 
+
+## Diagnose an application request alongside the database
+
+If the SDK already saved a sanitized JSON event, attach it to the diagnosis:
+
+```powershell
+uv run --project python rls-doctor diagnose public.orders --host YOUR_DATABASE_HOST --role authenticated --event PATH_TO_EVENT.json
+```
+
+The combined report includes the saved HTTP status and available Content-Range
+row count, authorization-header presence, filter columns/operators in JSON and
+catalog findings for the selected table. Missing authorization and missing SELECT,
+for example, appear as separate observations with actionable next steps.
+The event is validated before connecting; resource-name mismatches are rejected.
+
+A matching table name does not establish the original database, API schema or
+executed role. Independently compare these with application configuration.
+Catalogs describe inspection time; settings may have changed since capture.
+No application request is replayed and no customer rows are read. The overall
+outcome remains UNKNOWN until runtime behavior/root cause is established.
+Use analyze for an offline workflow without database/network access.
+
 ## Verification boundary
 
 The catalog-only command was executed against existing local PostgreSQL tables,
