@@ -32,6 +32,8 @@ class RequestMetadata(StrictModel):
     api: Literal["rest"]
     resource: Identifier
     filters: list[FilterMetadata] = Field(max_length=64)
+    schema_name: Identifier | None = Field(default=None, alias="schema")
+    columns: list[Identifier] | None = Field(default=None, max_length=64)
 
 
 class ResponseMetadata(StrictModel):
@@ -45,20 +47,34 @@ class ContextMetadata(StrictModel):
     apikey_present: bool
 
 
+class ProjectBinding(StrictModel):
+    project_id: str
+    origin_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class DiagnosticEvent(StrictModel):
-    schema_version: Literal["1.0"]
+    schema_version: Literal["1.0", "1.1"]
     event_id: str
     timestamp: str
     request: RequestMetadata
     response: ResponseMetadata
     context: ContextMetadata
     duration_ms: int = Field(ge=0, le=86400000)
+    binding: ProjectBinding | None = None
+    auth_check: Literal[
+        "not_checked", "no_authorization", "verified_user", "rejected", "unavailable"
+    ] = "not_checked"
 
 
-def event_validator() -> Draft202012Validator:
-    schema = json.loads(
-        files("rls_doctor.schemas").joinpath("diagnostic-event-v1.schema.json").read_text()
+def event_validator(version: str = "1.0") -> Draft202012Validator:
+    if version not in {"1.0", "1.1"}:
+        raise ValueError("Unsupported event version")
+    filename = (
+        "diagnostic-event-v1.schema.json"
+        if version == "1.0"
+        else "diagnostic-event-v1.1.schema.json"
     )
+    schema = json.loads(files("rls_doctor.schemas").joinpath(filename).read_text())
     checker = FormatChecker()
 
     @checker.checks("date-time", raises=(ValueError, TypeError))
@@ -80,11 +96,14 @@ def event_validator() -> Draft202012Validator:
 def parse_event(data: object) -> DiagnosticEvent:
     """Reject incompatible or extra fields without echoing their values."""
     try:
-        event_validator().validate(data)
+        version = str(data.get("schema_version")) if isinstance(data, dict) else ""
+        event_validator(version).validate(data)
         return DiagnosticEvent.model_validate(data)
     except Exception:
         # JSON Schema errors contain arbitrary input values; never format them.
-        raise DoctorError("INVALID_EVENT", "Event does not satisfy diagnostic schema v1.") from None
+        raise DoctorError(
+            "INVALID_EVENT", "Event does not satisfy a supported diagnostic schema (1.0 or 1.1)."
+        ) from None
 
 
 def load_event(path: Path) -> DiagnosticEvent:

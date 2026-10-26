@@ -55,7 +55,10 @@ def check_members(names: list[str], *, kind: str) -> None:
             )
     if not any(PurePosixPath(name).name.upper() in {"LICENSE", "LICENSE.TXT"} for name in names):
         raise DoctorError("PACKAGE_LICENSE", "Archive does not include the license text.")
-    if kind == "wheel" and "rls_doctor/schemas/diagnostic-event-v1.schema.json" not in names:
+    if kind == "wheel" and not {
+        "rls_doctor/schemas/diagnostic-event-v1.schema.json",
+        "rls_doctor/schemas/diagnostic-event-v1.1.schema.json",
+    } <= set(names):
         raise DoctorError("PACKAGE_SCHEMA", "Python wheel is missing the canonical event schema.")
     if kind == "sdk" and not {
         "package/dist/index.js",
@@ -167,7 +170,7 @@ def emit_ci_path(artifacts: Path, output_file: Path) -> None:
         handle.write("artifact_dir=" + directory + "\n")
 
 
-def check_distributions() -> Path:
+def check_distributions(scratch_dir: Path | None = None) -> Path:
     """Return audited preview artifacts after installed-package checks; never publish."""
     uv = shutil.which("uv")
     npm = shutil.which("npm.cmd") or shutil.which("npm")
@@ -178,7 +181,7 @@ def check_distributions() -> Path:
             "PACKAGE_TOOLS", "Install uv, Node.js/npm and pnpm before checking distributions."
         )
     assert uv and npm and pnpm and node
-    base = ROOT / ".rls-doctor"
+    base = scratch_dir if scratch_dir is not None else ROOT / ".rls-doctor"
     base.mkdir(exist_ok=True)
     run = Path(tempfile.mkdtemp(prefix="distribution-check-", dir=base))
     artifacts = run / "artifacts"
@@ -242,7 +245,8 @@ const events = [];
 const fileSink = createJsonFileSink({directory: './captures'});
 let stored;
 const wrapped = createCaptureFetch(async () => response, {
-  enabled: true, allowedOrigin: 'http://127.0.0.1:54321', resources: ['documents'],
+  enabled: true, projectId: '00000000-0000-4000-8000-000000000001',
+  allowedOrigin: 'http://127.0.0.1:54321', resources: ['documents'],
   sink: event => { events.push(event); stored = fileSink(event); return stored; }, maxEvents: 1,
 });
 const result = await wrapped('http://127.0.0.1:54321/rest/v1/documents?owner_id=eq.' + sentinel,
@@ -292,6 +296,16 @@ process.stdout.write(JSON.stringify(events[0]));
         raise DoctorError(
             "PACKAGE_VERSION", "Installed CLI version does not match project metadata."
         )
+    diagnosis_help = require_command(
+        [str(python), "-m", "rls_doctor.cli.main", "diagnose", "--help"], cwd=consumer
+    ).stdout
+    if not all(
+        option in diagnosis_help
+        for option in ("--host", "--approve-read-only", "--connection-env", "--event", "--profile")
+    ):
+        raise DoctorError(
+            "PACKAGE_DIAGNOSE", "Installed CLI is missing existing-database diagnosis."
+        )
     source_sdk = json.loads(
         (ROOT / "packages/capture-sdk/package.json").read_text(encoding="utf-8")
     )
@@ -312,7 +326,8 @@ import {
 } from '@rls-doctor/capture-sdk';
 const sink = createJsonFileSink({directory: './type-check'});
 const wrapped = createCaptureFetch(fetch, {
-  enabled: true, allowedOrigin: 'http://127.0.0.1:54321', resources: ['documents'], sink,
+  enabled: true, projectId: '00000000-0000-4000-8000-000000000001',
+  allowedOrigin: 'http://127.0.0.1:54321', resources: ['documents'], sink,
 });
 const response: Promise<Response> = wrapped('http://127.0.0.1:54321/rest/v1/documents');
 const acceptEvent = (event: DiagnosticEvent): void => { void sink(event); };
@@ -373,8 +388,10 @@ void response; void acceptEvent; wrapped.stop();
             "wheel-install",
             "installed-sdk-types",
             "installed-versions",
+            "installed-diagnose-help",
             "installed-file-sink",
             "installed-event-contract",
+            "installed-bound-event-contract",
             "offline-unknown",
         ],
     }
@@ -392,11 +409,14 @@ def main() -> int:
         action="store_true",
         help="Explicitly export the audited directory to the CI step output.",
     )
+    parser.add_argument(
+        "--scratch-dir", type=Path, help="Keep generated preview files outside the source checkout."
+    )
     args = parser.parse_args()
     output = os.environ.get("GITHUB_OUTPUT") if args.github_output else None
     if args.github_output and (os.environ.get("GITHUB_ACTIONS") != "true" or not output):
         raise DoctorError("PACKAGE_CI_CONTEXT", "--github-output requires a GitHub Actions step.")
-    artifacts = check_distributions()
+    artifacts = check_distributions(args.scratch_dir)
     if output is not None:
         emit_ci_path(artifacts, Path(output))
     return 0

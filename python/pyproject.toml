@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "rls-doctor"
 version = "0.1.0"
-description = "Local request replay and evidence-based authorization diagnostics for Supabase"
+description = "Read-only PostgreSQL and Supabase access diagnostics with optional local replay"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"

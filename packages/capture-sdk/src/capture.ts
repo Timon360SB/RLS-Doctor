@@ -1,4 +1,5 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { checkAuth } from "./auth.js";
 import { boundedInteger, eventSnapshot, IDENTIFIER, OPERATORS } from "./event.js";
 import type { CaptureFetch, CaptureOptions, DiagnosticErrorCode, DiagnosticEvent, FilterOperator } from "./types.js";
 
@@ -10,6 +11,9 @@ interface PendingCapture {
   readonly resource: string;
   readonly filters: DiagnosticEvent["request"]["filters"];
   readonly context: DiagnosticEvent["context"];
+  readonly schema?: string;
+  readonly columns?: readonly string[] | null;
+  readonly authHeaders?: Headers;
 }
 
 function originOption(value: string | undefined): string {
@@ -44,7 +48,7 @@ function headerPresence(headers: HeadersInit | undefined): DiagnosticEvent["cont
   return { authorization_present: names.includes("authorization"), apikey_present: names.includes("apikey") };
 }
 
-function metadata(args: Parameters<typeof fetch>, origin: string, resources: ReadonlySet<string>): PendingCapture | null {
+function metadata(args: Parameters<typeof fetch>, origin: string, resources: ReadonlySet<string>, bound: boolean, verifyAuth: boolean): PendingCapture | null {
   const [input, init] = args;
   const request = input instanceof Request ? input : null;
   const overrideMethod = init?.method;
@@ -71,7 +75,22 @@ function metadata(args: Parameters<typeof fetch>, origin: string, resources: Rea
     const operator = value.slice(0, separator);
     if (OPERATORS.has(operator)) filters.push({ column, operator: operator as FilterOperator });
   }
-  return { started: performance.now(), timestamp: new Date().toISOString(), resource, filters, context };
+  let schema: string | undefined;
+  let columns: readonly string[] | null | undefined;
+  let authHeaders: Headers | undefined;
+  if (bound) {
+    const normalized = new Headers(headers);
+    schema = normalized.get("accept-profile") ?? "public";
+    if (!IDENTIFIER.test(schema)) return null;
+    const projection = url.searchParams.get("select");
+    const parts = projection?.split(",");
+    columns = parts && parts.length <= 64 && parts.every(c => IDENTIFIER.test(c)) ? [...new Set(parts)] : null;
+    if (verifyAuth) authHeaders = normalized;
+  }
+  return { started: performance.now(), timestamp: new Date().toISOString(), resource, filters, context,
+    ...(schema === undefined ? {} : { schema, columns: columns ?? null }),
+    ...(authHeaders === undefined ? {} : { authHeaders }) };
+
 }
 
 function rowCount(response: Response): number | null {
@@ -94,6 +113,13 @@ export function createCaptureFetch(fetchImpl: typeof fetch, options: CaptureOpti
   if (typeof fetchImpl !== "function") throw new TypeError("A fetch implementation is required.");
   const enabled = options.enabled === true;
   const origin = enabled ? originOption(options.allowedOrigin) : "";
+  const bound = enabled && options.projectId !== undefined;
+  if (bound && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(options.projectId ?? "")) {
+    throw new TypeError("Project binding requires a non-secret UUID.");
+  }
+  if (enabled && options.verifyAuth && (!bound || !(origin.startsWith("https://") || /^http:\/\/(127(?:\.\d{1,3}){3}|\[::1\])(?::\d+)?$/.test(origin)))) {
+    throw new TypeError("Auth verification requires a project binding and HTTPS (numeric loopback excepted).");
+  }
   const resources = new Set(options.resources ?? []);
   if (enabled && (resources.size === 0 || [...resources].some((name) => !IDENTIFIER.test(name) || name === "rpc") ||
       typeof options.sink !== "function")) {
@@ -108,15 +134,17 @@ export function createCaptureFetch(fetchImpl: typeof fetch, options: CaptureOpti
   const diagnosticError = (code: DiagnosticErrorCode): void => {
     try { void Promise.resolve(options.onDiagnosticError?.(code)).catch(() => undefined); } catch { /* Never affect the application. */ }
   };
-  const complete = (pending: PendingCapture, response: Response | null): void => {
+  const emit = (pending: PendingCapture, response: Response | null, authCheck: DiagnosticEvent["auth_check"], elapsed: number): void => {
     if (stopped || performance.now() > deadline) return;
     let event: DiagnosticEvent;
     try {
       const status = response !== null && response.status >= 100 && response.status <= 599 ? response.status : null;
       event = eventSnapshot({
-        schema_version: "1.0", event_id: randomUUID(), timestamp: pending.timestamp,
-        duration_ms: Math.min(86_400_000, Math.max(0, Math.round(performance.now() - pending.started))),
-        request: { method: "GET", api: "rest", resource: pending.resource, filters: pending.filters },
+        schema_version: bound ? "1.1" : "1.0",
+        ...(bound ? { binding: { project_id: options.projectId!, origin_sha256: createHash("sha256").update(origin).digest("hex") }, auth_check: authCheck ?? "not_checked" } : {}),
+        event_id: randomUUID(), timestamp: pending.timestamp,
+        duration_ms: elapsed,
+        request: { method: "GET", api: "rest", resource: pending.resource, filters: pending.filters, ...(bound ? { schema: pending.schema!, columns: pending.columns ?? null } : {}) },
         response: { status, row_count: response === null ? null : rowCount(response), error_kind: response === null ? "network" : status !== null && status >= 400 ? "http" : null },
         context: pending.context,
       });
@@ -124,10 +152,16 @@ export function createCaptureFetch(fetchImpl: typeof fetch, options: CaptureOpti
     try { void Promise.resolve(options.sink?.(event)).catch(() => diagnosticError("sink_failed")); }
     catch { diagnosticError("sink_failed"); }
   };
+  const complete = (pending: PendingCapture, response: Response | null): void => {
+    const elapsed = Math.min(86_400_000, Math.max(0, Math.round(performance.now() - pending.started)));
+    if (options.verifyAuth && pending.authHeaders && !stopped && performance.now() <= deadline) {
+      void checkAuth(fetchImpl, origin, pending.authHeaders).then(result => emit(pending, response, result, elapsed)).catch(() => emit(pending, response, "unavailable", elapsed));
+    } else { emit(pending, response, "not_checked", elapsed); }
+  };
   const wrapped = function(this: unknown, ...args: Parameters<typeof fetch>): ReturnType<typeof fetch> {
     let pending: PendingCapture | null = null;
     if (!stopped && accepted < maxEvents && performance.now() <= deadline) {
-      try { pending = metadata(args, origin, resources); } catch { diagnosticError("metadata_failed"); }
+      try { pending = metadata(args, origin, resources, bound, options.verifyAuth === true); } catch { diagnosticError("metadata_failed"); }
       if (pending !== null) accepted += 1;
     }
     let result: ReturnType<typeof fetch>;

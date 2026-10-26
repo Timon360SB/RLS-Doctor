@@ -53,6 +53,7 @@ def test_built_wheel_shape_is_accepted(packages: ModuleType) -> None:
         [
             "rls_doctor/__init__.py",
             "rls_doctor/schemas/diagnostic-event-v1.schema.json",
+            "rls_doctor/schemas/diagnostic-event-v1.1.schema.json",
             "rls_doctor-0.1.0.dist-info/licenses/LICENSE",
             "rls_doctor-0.1.0.dist-info/METADATA",
         ],

@@ -17,6 +17,12 @@ def word(language: Language, en: str, ru: str) -> str:
 
 
 FACTS_RU = {
+    "AUTH_USER_VERIFIED": (
+        "Supabase Auth подтвердил пользовательскую сессию; ID не сохранён."
+        " Роль PostgreSQL не установлена."
+    ),
+    "AUTH_USER_REJECTED": "Supabase Auth отклонил авторизацию при явной проверке.",
+    "AUTH_CHECK_UNAVAILABLE": "Явная проверка Auth не установила действительную сессию.",
     "HTTP_OBSERVED": "Получены метаданные HTTP; наличие заголовка не подтверждает личность.",
     "NETWORK_FAILURE_OBSERVED": "SDK зафиксировал сетевую ошибку без HTTP-статуса.",
     "HTTP_STATUS_UNAVAILABLE": "HTTP-статус не получен; тип ошибки не установлен.",
@@ -58,6 +64,10 @@ FACTS_RU = {
     "SELECT_POLICY_COMPOSITION": "Применимые политики объединяются по правилам PostgreSQL.",
     "PREDICATES_UNEVALUATED": (
         "Выражения политик не вычислялись; их влияние на строки не установлено."
+    ),
+    "CAPTURE_DATABASE_LINK_UNVERIFIED": (
+        "Имена таблиц совпадают, но база, схема и роль исходного запроса не подтверждены. "
+        "Факты каталогов сами по себе не устанавливают причину этого запроса."
     ),
     "ROW_VISIBILITY_UNKNOWN": "По метаданным нельзя установить видимость конкретных строк.",
 }
@@ -117,9 +127,19 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
     }.get(result, ("Evidence is incomplete.", "Доказательств недостаточно."))
     console.print(word(language, *meaning))
 
+    if report.get("analysis_mode") == "existing_database_and_capture":
+        console.print(
+            word(
+                language,
+                "Application request: saved metadata; no request was replayed.",
+                "Запрос приложения: сохранённые метаданные; повторного запроса не было.",
+            )
+        )
     table = Table(show_header=False, box=None, padding=(0, 2))
     for key, en, ru in (
         ("run_id", "Run", "Проверка"),
+        ("diagnosis_id", "Diagnosis", "Диагностика"),
+        ("diagnosed_at", "Inspected at", "Время диагностики"),
         ("event_id", "Event", "Событие"),
         ("timestamp", "Time", "Время"),
         ("resource", "Resource", "Ресурс"),
@@ -144,8 +164,17 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
             Text(word(language, "Observed rows", "Получено строк")),
             Text(scalar(http["row_count"], language)),
         )
+    existing_database = report.get("analysis_mode") in {
+        "existing_database_catalogs",
+        "existing_database_and_capture",
+    }
     inspector = report.get("inspector") or (report if "policies" in report else {})
     catalog = inspector.get("table") or {}
+    if inspector.get("role", {}).get("name"):
+        table.add_row(
+            Text(word(language, "Selected database role", "Выбранная роль базы")),
+            Text(inspector["role"]["name"]),
+        )
     for key, en, ru in (
         ("rls_enabled", "RLS enabled", "RLS включён"),
         ("rls_forced", "FORCE RLS", "FORCE RLS"),
@@ -226,7 +255,11 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
                 detail = fact.get("summary", "")
                 if language == "ru":
                     detail = FACTS_RU.get(fact.get("code", ""), detail)
-                if report.get("event_id") and report.get("analysis_mode") != "capture_only":
+                if (
+                    report.get("event_id")
+                    and not existing_database
+                    and report.get("analysis_mode") != "capture_only"
+                ):
                     capture_context = {
                         "HTTP_OBSERVED": (
                             "HTTP metadata belongs to the captured request; the HTTP "
@@ -243,7 +276,7 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
                     }
                     if fact.get("code") in capture_context:
                         detail = word(language, *capture_context[fact["code"]])
-                if inspector is not report and inspector and http:
+                if inspector is not report and inspector and http and not existing_database:
                     catalog_limits = {
                         "EXECUTED_ROLE_UNCONFIRMED": (
                             "Catalog inspection alone cannot verify runtime identity; "
@@ -287,16 +320,25 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
     if "NO_PERMISSIVE_SELECT_POLICY" in codes:
         actions.append(
             (
-                "Review an applicable permissive SELECT policy and fixture ownership.",
-                "Проверьте применимую разрешающую SELECT-политику и владельцев тестовых строк.",
+                "Review an applicable permissive SELECT policy for the selected role.",
+                "Проверьте применимую разрешающую SELECT-политику для выбранной роли.",
+            )
+        )
+    if "CAPTURE_DATABASE_LINK_UNVERIFIED" in codes:
+        actions.append(
+            (
+                "Confirm the application's database endpoint, exposed schema and executed role; "
+                "the event does not establish this link.",
+                "Сверьте адрес базы приложения, схему API и исполняемую роль: "
+                "событие не подтверждает эту связь.",
             )
         )
     if "EMPTY_RESULT_AMBIGUOUS" in codes:
         actions.append(
             (
-                "Independently verify fixture existence, filters and "
+                "Independently verify matching data, filters and "
                 "identity before attributing zero rows to RLS.",
-                "Отдельно проверьте наличие тестовой строки, фильтры и "
+                "Отдельно проверьте наличие подходящих данных, фильтры и "
                 "личность: пустой ответ ещё не доказывает RLS.",
             )
         )
@@ -315,6 +357,25 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
         console.print(Text(word(language, "Error: ", "Ошибка: ") + error["code"]))
         console.print(Text(error["message"]))
     session_hints = {
+        "PROJECT_PROFILE_EXISTS": (
+            "Run diagnose with this profile, or choose a new --profile path for setup.",
+            "Запустите diagnose с этим профилем или выберите новый путь --profile для настройки.",
+        ),
+        "PROJECT_REQUIRED": (
+            "Run rls-doctor connect to select your database, table and role.",
+            "Запустите rls-doctor connect для выбора базы, таблицы и роли.",
+        ),
+        "EVENT_PROJECT_MISMATCH": (
+            "Choose the profile used by this capture; compare project ID, API origin and schema.",
+            "Выберите профиль этого события; сверьте ID проекта, адрес API и схему.",
+        ),
+        "PROJECT_CONNECTION_MISMATCH": (
+            "Use the saved host, database and username; a different database needs a new profile.",
+            (
+                "Используйте адрес, базу и пользователя профиля; для другой базы "
+                "создайте отдельный профиль."
+            ),
+        ),
         "REPORT_EXISTS": (
             "Choose a new --output filename; existing files are never overwritten.",
             "Выберите новое имя --output: существующие файлы не перезаписываются.",
@@ -359,11 +420,26 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
     }
     session_hint = session_hints.get(error["code"]) if error else None
     recommendations = report.get("recommendations", [])
+    if report.get("investigation"):
+        console.print("\n" + word(language, "Investigation", "Расследование"))
+        for index, step in enumerate(report["investigation"], 1):
+            state = step["state"]
+            label = {
+                "ESTABLISHED": ("established", "установлено"),
+                "CHECKED": ("checked", "проверено"),
+                "NEEDS_EVIDENCE": ("needs evidence", "нужны сведения"),
+            }.get(state, (state, state))
+            console.print(Text(f"{index}. [{word(language, *label)}] " + step[language]))
     console.print("\n" + word(language, "Next steps", "Следующие действия"))
     for en, ru in actions:
         console.print(Text("  • " + word(language, en, ru)))
     if session_hint:
         console.print(Text(word(language, *session_hint)))
+    elif language == "ru" and existing_database:
+        console.print(
+            "Сверьте выбранную роль, права схемы и таблицы, применимые политики "
+            "и фактический контекст запроса приложения."
+        )
     elif language == "ru":
         console.print(
             "Проверьте ожидаемую роль, владельцев тестовых строк, фильтры, GRANT и SELECT-политики."
@@ -400,6 +476,16 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
         console.print(
             "Выражения политик не вычисляются; по отчёту нельзя объявить приложение безопасным."
         )
+        if existing_database:
+            console.print(
+                "Прочитаны только каталоги выбранной базы. Строки таблицы, "
+                "запросы приложения и пробники личности не выполнялись."
+            )
+            if report.get("event_id"):
+                console.print(
+                    "HTTP относится к сохранённому запросу; повторного запроса не было. "
+                    "Настройки базы могли измениться после записи события."
+                )
         if report.get("analysis_mode") == "capture_only":
             console.print(
                 "Офлайн-анализ: сеть, воспроизведение запроса и база данных не использовались."

@@ -86,3 +86,17 @@ same privacy boundary as the lab. Stop with the same command's `--stop` option.
 See [the app walkthrough](../examples/task-board/README.md). The local-integration
 workflow includes this scenario; its source is our maintained synthetic sample,
 not independent adoption evidence.
+
+
+## Existing-database integration and temporary build files
+
+`scripts/database_check.py` creates an owned PostgreSQL TLS container and verifies
+CA/name/expiry rejection, restricted catalog access, structural policy privacy,
+profiles and the guided connection. With --workdir fixtures and explicit
+RLS_DOCTOR_ALLOW_FIXTURE_SETUP=1, it also checks actual local SDK/Auth capture,
+then removes only its synthetic Auth user. It never resets the existing stack.
+Generated certificates, profiles and event samples stay in OS temporary folders;
+container/volume cleanup checks the unique ownership label.
+
+Use `python scripts/package_check.py --scratch-dir PATH_TO_TEMP_DIRECTORY` to keep
+preview build/install files outside the source checkout. This performs no publication.

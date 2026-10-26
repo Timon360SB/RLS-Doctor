@@ -1,3 +1,11 @@
+> Current existing-database workflow: connect/diagnose, non-secret profiles, bound
+> schema 1.1 capture, opt-in Auth verification, narrow server-side policy shapes
+> and guided investigation are implemented. Real controlled TLS/least-privilege
+> and local Supabase SDK/Auth checks exist in scripts/database_check.py. By user
+> choice the external-connection check uses this isolated TLS stand; no actual
+> external hosted/customer project is claimed. The historical table below describes
+> the original local MVP; its old counts/remote baseline are not current-code CI.
+
 # MVP readiness audit
 
 Scope: specification.md sections 6–8, 14–18 and 20–23. Status as of 2026-10-25.

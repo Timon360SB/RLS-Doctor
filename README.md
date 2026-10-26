@@ -6,10 +6,10 @@
 
 **Understand who can read what in your Supabase application.**
 
-Capture minimal request metadata. Inspect PostgreSQL access settings.<br>
-Run an explicit local test. Get expectations, evidence and next steps.
+Inspect access settings in existing PostgreSQL/Supabase databases.<br>
+Trace requests and run local checks when more evidence is needed.
 
-[**Quick start**](#quick-start) · [Capabilities](#capabilities) · [Your project](#use-with-your-project) · [Reports](#reports-and-outcomes) · [Documentation](#documentation)
+[**Quick start**](#diagnose-an-existing-database) · [Capabilities](#capabilities) · [Your project](#use-with-your-project) · [Reports](#reports-and-outcomes) · [Documentation](#documentation)
 
 <img src="docs/assets/badges.svg" width="556" height="32" alt="Development preview · Node.js 22.12+ · Python 3.12+ · MIT license">
 
@@ -22,6 +22,26 @@ Run an explicit local test. Get expectations, evidence and next steps.
 **English** · [Русский](README.ru.md)
 
 </div>
+
+## Diagnose an existing database
+
+Connect your own PostgreSQL/Supabase database, choose a table/role and receive an
+ordered investigation without fixtures, YAML or customer-row reads:
+
+```powershell
+uv sync --project python --frozen
+uv run --project python rls-doctor connect
+uv run --project python rls-doctor diagnose --guide
+```
+
+Setup saves a non-secret profile; repeat diagnosis asks only for the hidden password.
+Optional bound SDK events add API/schema metadata and explicitly enabled Auth checks:
+`diagnose --event PATH_TO_EVENT.json`. Raw policies, tokens and rows are not exported.
+Remote connections require verified TLS. Runtime role/row visibility may remain UNKNOWN.
+
+Read the [connection guide](docs/existing-database.md) / [Русский](docs/existing-database.ru.md)
+for profiles, TLS, SDK binding, export and supported policy shapes. Python/uv suffice
+for database diagnosis; Node.js, Docker and the lab below are optional workflows.
 
 ## Why RLS Doctor
 
@@ -38,6 +58,7 @@ it does not certify an application's security.
 
 | Capability | What it does |
 | --- | --- |
+| Existing-database diagnosis | Read-only catalog inspection of an approved PostgreSQL/Supabase connection, without fixtures or scenario files |
 | Opt-in Node.js capture SDK | Wraps the application's `fetch` for `supabase-js`; preserves the original request/response and isolates diagnostic failures |
 | Minimal diagnostic events | Records supported REST GET metadata, timing, status, header presence and safely normalized filter names/operators; omits secrets, values and bodies |
 | Capture controls | Exact origin/resource allowlists, stop control, bounded recording duration/event count and bounded local JSON file storage |
@@ -68,7 +89,7 @@ the replay's executed role; captured headers cannot confirm the original caller.
 
 ## Quick start
 
-**Recommended on Windows: start with the guided practice lab.** It prepares a
+**Optional practice on Windows:** use the guided practice lab. It prepares a
 separate local Supabase database, two synthetic users and eight documents, then
 opens a menu. No credentials need copying.
 
@@ -180,6 +201,7 @@ Commands below follow `uv run --project python rls-doctor` when using the checko
 
 | Command | Purpose |
 | --- | --- |
+| `diagnose public.orders --host YOUR_DATABASE_HOST` | Diagnose existing access settings with hidden/private connection credentials |
 | `init --interactive` | Guided configuration and an explicit synthetic scenario |
 | `validate event.json` | Check a captured event against the shared schema |
 | `analyze event.json --expected-role authenticated` | Explain capture metadata offline |
@@ -287,15 +309,15 @@ Recorded local evidence as of **2026-10-25**; exact runs and versions are in
 
 | Area | Recorded evidence |
 | --- | --- |
-| SDK | 46 local tests; real application capture and installed archive/file-sink checks |
-| Python / shared contract | 241 tests on Python 3.12.14/Node 24 and Python 3.13.17/Node 22.23.4 |
+| SDK | 54 local tests on Node 22/24; real application capture and installed archive/file-sink checks |
+| Python / shared contract | 301 tests on Python 3.12 and 3.13 |
 | PostgreSQL | Eight tests per recorded real integration run; version coverage includes 16/17/18 |
 | Local workflows | Full Supabase E2E, 18-row practice checklist and separate custom-schema app passed |
 | Direct export | All six diagnostic commands checked for file/stdout parity; live PASS/FAIL/UNKNOWN/ERROR exports passed |
 | Packaging | Wheel, sdist and SDK archive built/audited; installed SDK/CLI exercised together |
 | Code checks | TypeScript checks and recorded SDK lint/tests; latest Python formatting/lint and strict types passed |
 
-The 241-test invocation excludes the eight integration tests; those have separate
+The 301-test invocation excludes the eight integration tests; those have separate
 actual execution evidence. These records are not live CI badges.
 
 All eight jobs in [run 40178244545](https://github.com/Timon360SB/RLS-Doctor/actions/runs/40178244545)
@@ -340,6 +362,7 @@ strict typing and CI instructions are in [Development](docs/development.md).
 | Topic | Guides |
 | --- | --- |
 | Guided practice | [English](docs/practice-testing.md) · [Русский](docs/practice-testing.ru.md) |
+| Existing database | [English](docs/existing-database.md) · [Русский](docs/existing-database.ru.md) |
 | Managed sessions | [English](docs/managed-session.md) · [Русский](docs/managed-session.ru.md) |
 | Separate task-board app | [English](examples/task-board/README.md) · [Русский](examples/task-board/README.ru.md) |
 | Setup and SDK | [Getting started](docs/getting-started.md) · [SDK API](packages/capture-sdk/README.md) · [Node example](examples/node-basic/README.md) |

@@ -5,7 +5,23 @@ from independent review, clean-machine verification and publication.
 
 Detailed requirement coverage and remaining release gates: [MVP audit](mvp-readiness.md).
 
-## P0 — diagnostic correctness and usable local workflow
+## P0 — existing-database diagnosis first
+
+User direction: the product's purpose is useful diagnosis of existing databases,
+not creating fixtures/scenarios. The primary command is now diagnose: explicit
+host approval, private DSN input, read-only access-control catalogs and findings.
+Remote catalog access requires verified TLS; remote replay remains excluded.
+Optional `diagnose --event` now combines sanitized application metadata and
+selected catalog findings, with an explicit unverified endpoint/schema/role link.
+No replay or user-row queries are performed.
+Implemented: guided connect, non-secret reusable profiles, bound event 1.1 with
+API/schema/projection metadata, opt-in Auth user verification, server-side narrow
+policy shapes and ordered/interactive investigation. Controlled TLS PostgreSQL
+and local SDK/Auth integration have real evidence; a dedicated runner is in CI.
+No actual hosted/customer connection has been verified yet. Local scenarios,
+lab/SDK capture and the optional detailed wizard support this primary workflow.
+
+## Implemented local supporting workflow
 
 - Implemented and locally verified: opt-in SDK, shared event contract, offline
   analysis, catalog inspection, explicit synthetic GET replay and full fixture E2E.

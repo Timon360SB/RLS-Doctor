@@ -117,7 +117,41 @@ Browser support and arbitrary writes are outside v0.1. A custom sink is user
 code: review it before sending even sanitized metadata anywhere.
 
 
-Schema v1 records the REST resource, not `Accept-Profile` or a verified database
+Schema 1.0 records the REST resource, not `Accept-Profile` or a verified database
 schema/identity. A custom-schema application still configures `db.schema` in
 supabase-js; a diagnostic replay must declare its schema and synthetic values
 separately. See the [installed-package task-board example](../../examples/task-board/README.md).
+
+
+## Bound project events and explicit Auth verification
+
+Copy the non-secret project UUID and API origin from `rls-doctor connect`:
+
+```ts
+const captureFetch = createCaptureFetch(fetch, {
+  enabled: true, projectId: 'UUID_FROM_CONNECT',
+  allowedOrigin: 'https://YOUR_PROJECT.supabase.co', resources: ['orders'],
+  verifyAuth: true,
+  sink: createJsonFileSink({ directory: '.rls-doctor/captures' }),
+});
+```
+
+`projectId?: string` opts into event 1.1, retaining 1.0 as the default. It adds a
+project UUID, SHA-256 of the API origin (not a token), Accept-Profile schema and
+simple projection-column names. Complex projection metadata is null. Schemas 1.0
+and 1.1 are separate strict contracts; new Python readers accept both, old readers
+reject 1.1. Shared-contract changes need review by both workstreams before merging.
+
+`verifyAuth?: boolean` defaults false. It requires projectId and HTTPS (numeric
+loopback HTTP excepted). It explicitly allows one additional GET /auth/v1/user
+through the supplied Fetch, with only authorization/apikey headers of that capture.
+The check starts after the original response; its result is a later observation.
+It uses redirect:error, an AbortSignal, a 3-second limit and a 32-KiB response cap.
+Transient Auth data is discarded; only verified_user/rejected/unavailable/
+no_authorization/not_checked is serialized. No token, user ID, email or Auth body
+is persisted. The original application Response is neither read nor cloned.
+
+A verified user session does not prove the executed database role or auth.uid value
+in the original query. A bound event establishes a configuration match, not trusted
+server routing or tamper-proof event authenticity. Review your supplied Fetch and
+local sink as trusted code. --event diagnosis never repeats the application GET.

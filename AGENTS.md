@@ -2,7 +2,9 @@
 
 ## Purpose
 
-RLS Doctor is an open-source developer tool for **diagnosing unexpected authorization behavior in Supabase applications**. The target workflow is: capture a minimal, sanitized description of an application's request → inspect the relevant PostgreSQL access configuration → reproduce an explicitly defined request in a controlled local Supabase environment → compare observed behavior with an explicit expectation → report evidence, uncertainty, and next steps.
+RLS Doctor is an open-source developer tool for **diagnosing access-control problems in existing PostgreSQL/Supabase databases**. The primary user workflow is: explicitly approve a database connection → choose an existing table and role → read access-control catalogs in a read-only transaction → explain concrete configuration findings, uncertainties and next steps. Users must not need synthetic fixtures, a YAML scenario, SDK integration or an identity probe to obtain catalog diagnostics.
+
+Request capture and explicit local synthetic replay are optional supporting workflows. Test scenarios validate behavior but are not the product's primary purpose. Existing-database catalog connections may be remote when explicitly approved, host-matched and protected by verify-full TLS. This exception does not enable remote application replay, customer-row collection, policy execution or automatic changes. Never present catalog-only findings as proof of actual row visibility.
 
 **This project is NOT** a generic RLS linter, an automatic SQL policy fixer, a security certification tool, or an invisible production traffic recorder. Existing tools (including pgrls, rlsautotest, pgTAP, and Supabase facilities) should be considered before duplicating functionality. Uniqueness and product–market fit are hypotheses to validate, not established facts.
 
@@ -17,7 +19,7 @@ The proposed v0.1 MVP includes:
 - TypeScript SDK integrating with a user-supplied `fetch` in `supabase-js`, initially targeting Node.js.
 - **Opt-in** collection of limited, sanitized metadata for supported Supabase REST **GET** requests.
 - Versioned diagnostic-event JSON Schema shared by the TypeScript and Python components.
-- Python CLI to validate events, inspect PostgreSQL RLS/privileges, run *explicitly configured* read scenarios against an isolated local Supabase instance, and produce console/JSON reports.
+- Python CLI to diagnose existing PostgreSQL/Supabase access settings through approved read-only catalog connections, validate events, optionally run explicit local synthetic scenarios, and produce console/JSON reports.
 - Local, reproducible fixtures and automated unit/integration/security tests.
 
 Out of scope for v0.1 unless the task explicitly expands it: browser instrumentation, arbitrary traffic interception, cloud collection, LLM-based root-cause guessing, UI/dashboard, VS Code extension, automatic policy changes, data migration, dynamic write scenarios (POST/PATCH/PUT/DELETE), and remote/production replay.
@@ -77,6 +79,7 @@ Do not coordinate by assuming that independent work sessions share state. The Gi
 - The SDK must not alter application auth, headers, URLs, method, request body, response body, or status; it must not consume the response stream. A diagnostic failure must not cause the application's original request to fail.
 - Limit v0.1 capture to the configured Supabase REST GET paths. Treat RPC and unknown endpoints as unsupported; do not assume that all GET endpoints are side-effect-free.
 - Capture only fields actually observable from the instrumented request. `Authorization` header presence **does not** prove identity, token validity, role, or successful authentication. Decoded but unverified JWT claims are not trusted proof.
+- Opt-in bound SDK Auth verification may transiently read a bounded Auth response from the explicitly configured origin. Persist only the coarse outcome, never tokens, IDs, email or response bodies. This never permits consuming the original application response or asserting the executed PostgreSQL role.
 - No automatic retransmission of captured requests. Sanitized events generally lack data required for faithful replay. Replay is a **separate, explicit, user-authored test scenario** using synthetic fixtures and local test credentials.
 - Replay must be disabled unless its destination and environment are explicitly approved as local test infrastructure. Restrict destination schemes/hosts/ports with an explicit allowlist and validation; disable redirects and reject URL/userinfo tricks. `localhost` checks alone do not prove a target is safe (e.g., tunnels/proxies). Do not claim these controls protect against every misconfiguration.
 - Never use production credentials, production rows, or live customer data in fixtures or replay. No schema modification, policy changes, or arbitrary SQL execution as part of diagnostics. Database inspection should use read-only catalog queries with least-privilege credentials where possible.

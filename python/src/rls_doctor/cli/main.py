@@ -1,5 +1,6 @@
 """CLI exit codes: 0 PASS, 1 FAIL, 2 UNKNOWN, 3 operational ERROR."""
 
+import os
 import re
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -8,23 +9,28 @@ import httpx
 import typer
 
 from rls_doctor import __version__
+from rls_doctor.cli.project import connect_project, follow_up
 from rls_doctor.cli.session import run_session
 from rls_doctor.cli.wizard import guided_files, initialize
 from rls_doctor.core.config import load_config
+from rls_doctor.core.database_connection import inspection_dsn
 from rls_doctor.core.errors import DoctorError
 from rls_doctor.core.models import load_event
+from rls_doctor.core.profiles import load_profile
 from rls_doctor.identity.validation import bounded_json, local_headers
 from rls_doctor.postgres.inspector import InspectorError, doctor_database, inspect_table
 from rls_doctor.replay.runner import replay as run_replay
 from rls_doctor.replay.scenarios import load_scenario
 from rls_doctor.reports.capture import capture_report
 from rls_doctor.reports.console import Language, render, word
+from rls_doctor.reports.database import database_capture_report, validate_capture_table
 from rls_doctor.reports.files import available, write_report
+from rls_doctor.reports.investigation import investigate
 
 app = typer.Typer(
     no_args_is_help=True,
     pretty_exceptions_enable=False,
-    help="Explicit local Supabase request and authorization diagnostics.",
+    help="Read-only PostgreSQL/Supabase access diagnostics and optional local scenario checks.",
     epilog="Documentation: https://github.com/Timon360SB/RLS-Doctor#documentation",
 )
 Format = Literal["console", "json"]
@@ -128,9 +134,15 @@ def init(
         ),
     ] = False,
     language: OutputLanguage = "en",
+    advanced: Annotated[
+        bool,
+        typer.Option("--advanced", help="With --interactive: columns, filters and record checks."),
+    ] = False,
 ) -> None:
     """Create configuration and a synthetic scenario without overwriting files."""
     try:
+        if advanced and not interactive:
+            raise DoctorError("INIT_MODE", "Use --interactive with --advanced.")
         if any(
             (directory / name).exists() or (directory / name).is_symlink()
             for name in ("rls-doctor.toml", "documents.yaml")
@@ -138,7 +150,11 @@ def init(
             raise DoctorError(
                 "INIT_EXISTS", "Example files already exist; choose another directory."
             )
-        contents = guided_files(language) if interactive else (CONFIG_TEMPLATE, SCENARIO_TEMPLATE)
+        contents = (
+            guided_files(language, advanced=advanced)
+            if interactive
+            else (CONFIG_TEMPLATE, SCENARIO_TEMPLATE)
+        )
         initialize(directory, contents)
         typer.echo(
             word(
@@ -149,7 +165,7 @@ def init(
                 "адрес перед воспроизведением.",
             )
         )
-        if interactive:
+        if interactive and not advanced:
             typer.echo(
                 word(
                     language,
@@ -170,6 +186,18 @@ def init(
                     "Пробник роли выключен в этой конфигурации. Исполняемая "
                     "роль не подтверждена: replay может вернуть UNKNOWN. Проверка "
                     "числа строк не доказывает изоляцию.",
+                )
+            )
+        if interactive and advanced:
+            typer.echo(
+                word(
+                    language,
+                    "Next: run this scenario with 'rls-doctor session'. Prepare synthetic "
+                    "rows/identity separately; probe opt-in does not install or validate "
+                    "its implementation.",
+                    "Далее: запустите сценарий через 'rls-doctor session'. Тестовые строки и "
+                    "личность подготавливаются отдельно; выбор пробника не устанавливает "
+                    "и не проверяет его код.",
                 )
             )
     except (typer.Abort, KeyboardInterrupt):
@@ -316,6 +344,168 @@ def inspect(
         report = inspect_table(env.database_dsn(), parts[0], parts[1], role)
         report["result"] = "UNKNOWN"
         report["resource"] = table
+    except Exception as exc:
+        fail(exc, format, language, output)
+        return
+    finish(report, format, language, output)
+
+
+@app.command("connect")
+def connect(
+    profile: Annotated[
+        Path, typer.Option("--profile", help="Save a new non-secret project profile.")
+    ] = Path(".rls-doctor/project.json"),
+    language: OutputLanguage = "en",
+) -> None:
+    """Connect an existing database and choose table/role; never save credentials."""
+    try:
+        report = investigate(connect_project(profile, language))
+    except (typer.Abort, KeyboardInterrupt):
+        fail(DoctorError("DATABASE_CANCELLED", "Connection setup cancelled."), "console", language)
+        return
+    except Exception as exc:
+        fail(exc, "console", language)
+        return
+    render(report, "console", language)
+    raise typer.Exit(0)  # Profile setup succeeded; report still states UNKNOWN visibility.
+
+
+@app.command()
+def diagnose(
+    table: Annotated[str | None, typer.Argument()] = None,
+    host: Annotated[
+        str | None, typer.Option("--host", help="Exact approved database hostname or IP.")
+    ] = None,
+    profile: Annotated[
+        Path | None, typer.Option("--profile", help="Non-secret saved database profile.")
+    ] = None,
+    role: Annotated[
+        str | None, typer.Option(help="Database role whose access settings to inspect.")
+    ] = None,
+    event: Annotated[
+        Path | None, typer.Option("--event", help="Optional sanitized application capture JSON.")
+    ] = None,
+    connection_env: Annotated[
+        str,
+        typer.Option(
+            "--connection-env", help="Optional environment reference; never put a DSN in arguments."
+        ),
+    ] = "RLS_DOCTOR_DATABASE_URL",
+    approve_read_only: Annotated[
+        bool,
+        typer.Option(
+            "--approve-read-only", help="Explicitly approve catalog-only access to this host."
+        ),
+    ] = False,
+    guide: Annotated[
+        bool, typer.Option("--guide", help="Ask non-secret follow-up questions.")
+    ] = False,
+    format: OutputFormat = "console",
+    output: OutputPath = None,
+    language: OutputLanguage = "en",
+) -> None:
+    """Diagnose an existing PostgreSQL/Supabase table without fixtures or scenarios."""
+    try:
+        available(output)
+        if guide and format == "json":
+            raise DoctorError("PROJECT_GUIDE_MODE", "Interactive guidance requires console output.")
+        profile_path = profile or (
+            Path(".rls-doctor/project.json")
+            if Path(".rls-doctor/project.json").is_file() and table is None
+            else None
+        )
+        saved = load_profile(profile_path) if profile_path else None
+        if saved is not None:
+            if host is not None and host != saved.host:
+                raise DoctorError(
+                    "PROJECT_CONNECTION_MISMATCH", "Host differs from the saved project."
+                )
+            table, host, role = table or saved.table, saved.host, role or saved.role
+            connection_env = saved.connection_env
+        role = role or "authenticated"
+        if table is None or host is None:
+            raise DoctorError(
+                "PROJECT_REQUIRED", "Run rls-doctor connect first, or provide table and --host."
+            )
+        parts = table.split(".")
+        if len(parts) != 2 or any(
+            not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]{0,62}", p) for p in [*parts, role]
+        ):
+            raise DoctorError("INVALID_IDENTIFIER", "Use simple schema.table and role identifiers.")
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]{0,95}", connection_env):
+            raise DoctorError("DATABASE_ENV_NAME", "Use a valid environment reference name.")
+        captured = load_event(event) if event is not None else None
+        if captured is not None:
+            validate_capture_table(captured, table, saved)
+        if not approve_read_only:
+            if format == "json":
+                raise DoctorError(
+                    "DATABASE_APPROVAL_REQUIRED", "JSON mode requires --approve-read-only."
+                )
+            approve_read_only = typer.confirm(
+                word(
+                    language,
+                    f"Read only access-control catalogs on {host} for {table} / {role}?",
+                    f"Прочитать только каталоги прав на {host} для {table} / {role}?",
+                ),
+                default=False,
+            )
+            if not approve_read_only:
+                raise DoctorError(
+                    "DATABASE_APPROVAL_REQUIRED", "Catalog-only connection was not approved."
+                )
+        raw = os.environ.get(connection_env)
+        if not raw and saved is not None and format == "console":
+            password = typer.prompt(
+                word(
+                    language,
+                    "Database password (hidden; not saved)",
+                    "Пароль базы (ввод скрыт; не сохраняется)",
+                ),
+                hide_input=True,
+                show_default=False,
+            )
+            raw = saved.connection(password)
+        if not raw:
+            if format == "json":
+                raise DoctorError(
+                    "MISSING_CREDENTIAL",
+                    "Set the selected database environment reference privately.",
+                )
+            raw = typer.prompt(
+                word(
+                    language,
+                    "PostgreSQL connection string (hidden; not saved)",
+                    "Строка подключения PostgreSQL (ввод скрыт; не сохраняется)",
+                ),
+                hide_input=True,
+                show_default=False,
+            )
+        dsn = inspection_dsn(raw, host, approved=approve_read_only)
+        if saved is not None:
+            saved.check_connection(dsn)
+        report = inspect_table(dsn, parts[0], parts[1], role, True)
+        report.update(result="UNKNOWN", resource=table, analysis_mode="existing_database_catalogs")
+        report["limitations"].insert(
+            0,
+            "Existing database catalog diagnosis: no table rows, app queries "
+            "or identity probes executed.",
+        )
+        if captured is not None:
+            report = database_capture_report(captured, table, role, report, saved)
+        report = investigate(report, captured)
+        if guide:
+            report = follow_up(report, language)
+    except (typer.Abort, KeyboardInterrupt):
+        fail(
+            DoctorError(
+                "DATABASE_CANCELLED", "Database diagnosis cancelled; no outcome established."
+            ),
+            format,
+            language,
+            output,
+        )
+        return
     except Exception as exc:
         fail(exc, format, language, output)
         return

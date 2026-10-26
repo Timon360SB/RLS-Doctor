@@ -523,3 +523,58 @@ versions, both languages, the 18-row lab, preserved-data restart, installed app
 counts/doctor/export and safe issue reporting. No second maintainer has been
 reported as having completed them. Clean Windows onboarding and independent human
 review/reproduction remain required; source/co-author metadata is not a substitute.
+
+
+## Existing databases first - 2026-10-26
+
+Added `diagnose` for an explicitly approved existing PostgreSQL/Supabase table
+and role. No fixture setup, scenario, SDK or identity probe is required. The
+connection reads access-control catalogs in a bounded read-only transaction;
+customer table rows and policy expressions are not collected. Runtime visibility
+remains UNKNOWN even when concrete catalog problems are established.
+
+Connection tests cover approval before DNS, exact hostname matching, verified
+remote TLS, rejected connection overrides, and hidden credential input. A live
+local run inspected existing documents, no_grant_documents and leaky_documents
+without fixture preparation, new users, writes or application HTTP requests.
+Missing SELECT was observed. Actual remote TLS/database access remains unverified.
+
+The optional advanced scenario wizard supports typed filters and row assertions;
+it remains a supporting local workflow. All 271 non-integration Python tests
+passed on Python 3.12/Node 24 and Python 3.13/Node 22; eight integration tests were
+deselected. Ruff and strict mypy (27 package sources) passed.
+
+Installed-package verification produced
+`.rls-doctor/distribution-check-qeyw2sv3/artifacts/manifest.json`, including
+installed-diagnose-help, installed-event-contract and offline-unknown checks.
+These are working-tree preview artifacts, not a release or current remote CI run.
+
+
+## Existing database plus application metadata - 2026-10-26
+
+`diagnose --event` combines validated capture observations and the selected
+existing-table catalog inspection. Resource mismatch/invalid input is rejected
+before approval/DNS/connection; endpoint, schema and executed-role linkage remain
+UNVERIFIED. No replay is enabled. The event contract and SDK remain unchanged.
+Catalog inspection time is explicitly distinguished from event capture time.
+
+All 278 non-integration Python tests passed (eight integration tests deselected).
+Seven new regressions cover both header contexts, bilingual presentation without
+replay claims, invalid/mismatching event rejection, privacy and preserved exports.
+Ruff and strict mypy (28 sources) passed; documentation links passed.
+
+Docker Engine was initially unavailable; after starting the installed Docker
+Desktop, a CLI run against the existing public.no_grant_documents table passed
+in EN, RU and JSON. It observed missing SELECT and paired that fact with a clearly
+synthetic saved 403 event lacking authorization. It retained the unverified link,
+UNKNOWN result and read-only transaction flag. This verifies real catalog access
+and report composition, not an end-to-end capture from a customer application.
+No fixture preparation, new users, data writes or application HTTP requests ran.
+Actual hosted/customer databases and remote TLS remain unverified.
+
+
+A fresh full package build/install check passed at
+`.rls-doctor/distribution-check-1ub3g0h2/artifacts`. Installed CLI help includes
+`--event`; archive/license/schema checks and installed SDK/CLI contract checks
+passed. This is a local working-tree preview, with no publication or remote CI
+execution claimed for these changes.

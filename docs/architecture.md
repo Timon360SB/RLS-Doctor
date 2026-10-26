@@ -3,7 +3,7 @@
 RLS Doctor 0.1.0 targets Node.js 22/24 and Python 3.12+. This is an initial
 implementation, not a published or independently validated release.
 
-Capture produces only schema v1 metadata. An explicit origin and resource allowlist
+Capture defaults to schema 1.0; explicit project binding produces schema 1.1 metadata. An explicit origin and resource allowlist
 is required; capture is off by default. A wrapped fetch receives exactly the same
 arguments and returns the original response without reading its body. Row counts
 are inferred only from a valid Content-Range header. Error bodies and JWT claims
@@ -20,8 +20,10 @@ reports. A trusted local RPC can confirm the actual database role in the replay
 context; an unconfirmed role stays unknown. GET RPC execution is excluded from
 user scenarios; the sole identity probe is hard-coded in the local fixture.
 
-Inspection uses Psycopg 3 read-only catalog queries on a separately allowlisted
-local Postgres endpoint. SQL privileges are distinct from policy predicates.
+The primary diagnose workflow uses Psycopg 3 read-only catalog queries on an
+explicitly approved existing PostgreSQL/Supabase connection. Remote catalog
+connections require exact host matching and verify-full TLS; this does not permit
+remote HTTP replay. No scenarios, fixtures, SDK or identity probe are required. SQL privileges are distinct from policy predicates.
 Reports separate evidence (OBSERVED/INFERRED/UNVERIFIED) from assertion results
 (PASS/FAIL/UNKNOWN/ERROR). The inspector does not evaluate arbitrary predicates.
 No diagnostics execute schema changes. Fixture setup is a separate explicit step.
@@ -50,3 +52,29 @@ only disposable local stacks. Signed claims confirm token validation, not policy
 intent. A server-side identity probe is meaningful only in trusted local fixtures.
 Empty results never prove RLS caused exclusion. Fixture SQL is synthetic and
 must never be applied to production. Full Supabase E2E requires Docker.
+
+
+### Existing-database request context
+
+connect discovers bounded table/role names, checks catalog access and saves a
+strict profile without credentials. diagnose reuses it with a hidden password or
+private DSN reference. Profiles retain TLS settings and must match the supplied
+endpoint/database/user. No setup command changes schema, policies, rows or users.
+
+Default SDK events remain 1.0. Explicit projectId enables strict event 1.1 with
+project UUID, API-origin SHA-256, Accept-Profile schema, simple projection metadata
+and optional bounded Auth-check outcome. Both schemas are packaged and supported
+by new Python readers; old readers explicitly reject 1.1. Review the shared change
+across both workstreams before merging. No old event is silently upgraded.
+
+diagnose --event rejects mismatched profile/API/schema/resource before connecting.
+Configuration matching is not attestation of actual server routing or runtime role.
+Auth verification observes only user-session acceptance at check time. Raw tokens,
+user IDs and response bodies are not serialized; PostgreSQL role remains unknown.
+
+The inspector classifies a narrow set of conditions on the server, returning enums
+and column names only. Literal-bearing/custom-type expressions remain opaque.
+Policy functions are never run. Investigation combines independent observations,
+constant-policy composition and explicit unknowns, with separate diagnosis time/ID.
+--guide collects coarse operator statements, labels them UNVERIFIED and chooses
+a next action without promoting them to database facts. No original GET is replayed.
