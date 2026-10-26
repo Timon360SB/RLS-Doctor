@@ -22,6 +22,7 @@ from rls_doctor.replay.runner import replay
 from rls_doctor.replay.scenarios import Scenario, load_scenario
 from rls_doctor.reports.console import Language, render, word
 from rls_doctor.reports.files import available, write_report
+from rls_doctor.reports.metadata import complete_report
 
 
 def run_session(
@@ -194,9 +195,10 @@ def menu(
             )
             return 0
         if choice == "1":
-            report = replay(scenario, config, event, inspect=True)
+            report = complete_report(replay(scenario, config, event, inspect=True))
             if output_path is not None:
-                write_report(report, output_path)
+                write_report(complete_report(report), output_path)
+            complete_report(report)
             render(report, output_format, language)
             if run_once:
                 return {"PASS": 0, "FAIL": 1, "UNKNOWN": 2, "ERROR": 3}[report["result"]]
@@ -211,6 +213,7 @@ def menu(
                 result="UNKNOWN",
                 resource=f"{scenario.request.schema_name}.{scenario.request.resource}",
             )
+            complete_report(report)
             render(report, output_format, language)
         else:
             typer.echo(word(language, "Choose 0, 1 or 2.", "Введите 0, 1 или 2."))

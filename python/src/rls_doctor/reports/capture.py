@@ -24,6 +24,7 @@ def capture_report(
         "result": "UNKNOWN",
         "event_id": event.event_id,
         "timestamp": event.timestamp,
+        "captured_at": event.timestamp,
         "resource": event.request.resource,
         "method": event.request.method,
         "identity": {

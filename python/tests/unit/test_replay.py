@@ -290,3 +290,41 @@ def test_custom_table_schema_does_not_redirect_the_trusted_public_probe(
     )
     assert report["result"] == "PASS"
     assert report["identity"]["confirmed_role"] == "authenticated"
+
+
+@pytest.mark.parametrize("language", ["en", "ru"])
+def test_inspection_failure_keeps_http_evidence_and_safe_sqlstate(
+    config: ProjectConfig,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    language: Any,
+) -> None:
+    import importlib
+
+    from rls_doctor.postgres.inspector import InspectorError
+    from rls_doctor.reports.console import render
+
+    runner = importlib.import_module("rls_doctor.replay.runner")
+
+    def reject(*args: object, **kwargs: object) -> object:
+        raise InspectorError(
+            "POSTGRES_INSPECTION_FAILED", "Fixed message", "42501", phase="catalog"
+        )
+
+    monkeypatch.setenv(
+        "RLS_DOCTOR_DATABASE_URL",
+        "host=127.0.0.1 port=54322 dbname=postgres user=reader password=PRIVATE_PASSWORD",
+    )
+    monkeypatch.setattr(runner, "inspect_table", reject)
+    report = replay(scenario(), config, inspect=True, transport=httpx.MockTransport(response))
+    assert report["result"] == "ERROR"
+    assert report["http"]["status"] == 200 and report["http"]["row_count"] == 1
+    assert report["inspector"]["error"]["sqlstate"] == "42501"
+    assert report["inspector"]["error"]["diagnostic"]["category"] == "insufficient_privilege"
+    render(report, language=language)
+    output = capsys.readouterr().out
+    assert "42501" in output
+    assert "PRIVATE_PASSWORD" not in output
+    assert "TABLE_SECRET" not in output
+    assert "Policies inspected" not in output
+    assert "Политик прочитано" not in output

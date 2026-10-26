@@ -8,6 +8,7 @@ from rich.table import Table
 from rich.text import Text
 
 from rls_doctor import __version__
+from rls_doctor.reports.operational import advice_for
 
 Language = Literal["en", "ru"]
 
@@ -104,6 +105,11 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
     if format == "json":
         console.print(json.dumps(report, indent=2, ensure_ascii=True), soft_wrap=True)
         return
+    if report.get("analysis_mode") == "schema_catalog_overview":
+        from rls_doctor.reports.overview import render_overview
+
+        render_overview(report, language)
+        return
     console.print(f"RLS DOCTOR v{__version__}")
     result = report.get("result", "UNKNOWN")
     console.print(word(language, "Result: ", "Результат: ") + str(result))
@@ -139,12 +145,15 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
     for key, en, ru in (
         ("run_id", "Run", "Проверка"),
         ("diagnosis_id", "Diagnosis", "Диагностика"),
-        ("diagnosed_at", "Inspected at", "Время диагностики"),
+        ("diagnosed_at", "Diagnosis time", "Время диагностики"),
         ("event_id", "Event", "Событие"),
-        ("timestamp", "Time", "Время"),
+        ("timestamp", "Run time", "Время запуска"),
+        ("captured_at", "Request captured", "Запрос записан"),
         ("resource", "Resource", "Ресурс"),
         ("method", "Method", "Метод"),
     ):
+        if key == "timestamp" and report.get("captured_at") == report.get("timestamp"):
+            continue
         if key in report:
             table.add_row(Text(word(language, en, ru)), Text(scalar(report[key], language)))
     identity = report.get("identity") or {}
@@ -181,7 +190,7 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
     ):
         if key in catalog:
             table.add_row(Text(word(language, en, ru)), Text(scalar(catalog[key], language)))
-    if inspector:
+    if inspector and "policies" in inspector:
         table.add_row(
             Text(word(language, "Policies inspected", "Политик прочитано")),
             Text(str(len(inspector.get("policies", [])))),
@@ -352,10 +361,25 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
                 "Проверьте ограничение по владельцу в SELECT-политике и владельцев тестовых строк.",
             )
         )
-    error = report.get("error")
+    error = report.get("error") or inspector.get("error")
+    operational_advice = advice_for(error) if error else None
     if error:
-        console.print(Text(word(language, "Error: ", "Ошибка: ") + error["code"]))
-        console.print(Text(error["message"]))
+        nested_error = not report.get("error") and inspector.get("error")
+        error_label = (
+            word(language, "Database inspection error: ", "Ошибка инспектора БД: ")
+            if nested_error
+            else word(language, "Error: ", "Ошибка: ")
+        )
+        console.print(Text(error_label + error["code"]))
+        console.print(
+            Text(
+                word(language, *operational_advice.title)
+                if operational_advice
+                else error["message"]
+            )
+        )
+        if error.get("sqlstate"):
+            console.print(Text("SQLSTATE: " + error["sqlstate"]))
     session_hints = {
         "PROJECT_PROFILE_EXISTS": (
             "Run diagnose with this profile, or choose a new --profile path for setup.",
@@ -433,8 +457,18 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
     console.print("\n" + word(language, "Next steps", "Следующие действия"))
     for en, ru in actions:
         console.print(Text("  • " + word(language, en, ru)))
-    if session_hint:
+    if operational_advice:
+        console.print(Text(word(language, *operational_advice.action)))
+    elif session_hint:
         console.print(Text(word(language, *session_hint)))
+    elif error:
+        console.print(
+            word(
+                language,
+                "Review the fixed error code and the selected command's input settings.",
+                "Сверьте код ошибки и параметры выбранной команды.",
+            )
+        )
     elif language == "ru" and existing_database:
         console.print(
             "Сверьте выбранную роль, права схемы и таблицы, применимые политики "
@@ -463,13 +497,35 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
             )
         )
     console.print("\n" + word(language, "Diagnostic limits", "Ограничения диагностики"))
+    if error:
+        console.print(
+            word(
+                language,
+                (
+                    "The operation did not fully complete; the error alone does not "
+                    "establish the application's access-control cause."
+                ),
+                "Операция не завершена полностью; сама ошибка не устанавливает причину доступа.",
+            )
+        )
+        if operational_advice and operational_advice.evidence == "UNVERIFIED":
+            console.print(
+                word(
+                    language,
+                    (
+                        "The specific failure cause is unverified. Raw errors and secrets "
+                        "were not retained."
+                    ),
+                    "Причина сбоя не подтверждена. Сырые ошибки и секреты не сохранены.",
+                )
+            )
     if language == "en":
         for item in [
             *report.get("limitations", []),
             *(inspector.get("limitations", []) if inspector is not report else []),
         ]:
             console.print(Text("  • " + item))
-    else:
+    elif not error:
         console.print(
             "Наличие заголовка не подтверждает роль. Пустой ответ не доказывает запрет RLS."
         )

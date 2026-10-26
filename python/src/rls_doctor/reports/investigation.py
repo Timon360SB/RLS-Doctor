@@ -1,10 +1,9 @@
 """Ordered diagnostic decisions over independent evidence, never guessed causes."""
 
-from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
 
 from rls_doctor.core.models import DiagnosticEvent
+from rls_doctor.reports.metadata import complete_report
 
 
 def investigate(report: dict[str, Any], event: DiagnosticEvent | None = None) -> dict[str, Any]:
@@ -302,7 +301,6 @@ def investigate(report: dict[str, Any], event: DiagnosticEvent | None = None) ->
             ),
         )
     report["investigation"] = steps
-    report["diagnosis_id"] = str(uuid4())
-    report["diagnosed_at"] = datetime.now(UTC).isoformat()
+    complete_report(report)
     report["configuration_blockers"] = sorted(blockers)
     return report

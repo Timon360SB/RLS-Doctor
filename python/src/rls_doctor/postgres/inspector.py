@@ -22,10 +22,20 @@ SUPPORTED_MAJORS = frozenset({16, 17, 18})
 class InspectorError(Exception):
     """An inspection error containing only a fixed message and safe SQLSTATE."""
 
-    def __init__(self, code: str, message: str, sqlstate: str | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        sqlstate: str | None = None,
+        *,
+        phase: str | None = None,
+        detail_code: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.sqlstate = sqlstate
+        self.phase = phase
+        self.detail_code = detail_code
 
 
 _DATABASE_SQL = """
@@ -116,6 +126,7 @@ def _database(connection: psycopg.Connection[dict[str, Any]]) -> dict[str, Any]:
 def _with_database[T](dsn: str, operation: Callable[[psycopg.Connection[dict[str, Any]]], T]) -> T:
     """Establish fixed defensive settings before running our catalog queries."""
     failure: InspectorError | None = None
+    connected = False
     try:
         # Keyword arguments override conflicting DSN parameters. The caller's DSN
         # must already be allowlisted; local forwarding remains an operator risk.
@@ -128,6 +139,7 @@ def _with_database[T](dsn: str, operation: Callable[[psycopg.Connection[dict[str
             ),
             row_factory=dict_row,
         ) as connection:
+            connected = True
             connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             return operation(connection)
     except psycopg.Error as error:
@@ -135,11 +147,22 @@ def _with_database[T](dsn: str, operation: Callable[[psycopg.Connection[dict[str
         state = error.sqlstate
         if state is not None and (len(state) != 5 or not state.isascii() or not state.isalnum()):
             state = None
+        detail = None
+        if isinstance(error, psycopg.errors.ConnectionTimeout):
+            detail = "connection_timeout"
+        elif not connected:
+            try:
+                if error.pgconn is not None and error.pgconn.needs_password:
+                    detail = "password_required"
+            except Exception:
+                pass
         failure = InspectorError(
             "POSTGRES_INSPECTION_FAILED",
             "PostgreSQL catalog inspection failed. "
             "Check the approved database endpoint and catalog permissions.",
             state,
+            phase="catalog" if connected else "connection",
+            detail_code=detail,
         )
     # Raise outside the except block so an unsafe database exception is not chained.
     assert failure is not None
@@ -340,82 +363,91 @@ def inspect_table(
             "Schema, table, and role names must be nonempty and contain no NUL characters.",
         )
 
-    def operation(connection: psycopg.Connection[dict[str, Any]]) -> dict[str, Any]:
-        database = _database(connection)
-        role_info = connection.execute(_ROLE_SQL, (role,)).fetchone()
-        if role_info is None:
-            raise InspectorError(
-                "ROLE_NOT_FOUND", "The selected role was not found in the PostgreSQL catalog."
-            )
-        table_info = connection.execute(_TABLE_SQL, (schema, table)).fetchone()
-        if table_info is None:
-            raise InspectorError(
-                "TABLE_NOT_FOUND", "The selected relation was not found in the PostgreSQL catalog."
-            )
-        if table_info["kind"] not in {"r", "p"}:
-            raise InspectorError(
-                "UNSUPPORTED_RELATION",
-                "Only ordinary and partitioned tables are supported; "
-                "view and foreign-table behavior is not inferred.",
-            )
-        role_oid, table_oid = role_info["oid"], table_info["oid"]
-        privileges = connection.execute(
-            _PRIVILEGES_SQL,
-            (
-                role_oid,
-                table_info["schema_oid"],
-                role_oid,
-                table_oid,
-                role_oid,
-                table_oid,
-                role_oid,
-                table_info["owner_oid"],
-            ),
-        ).fetchone()
-        assert privileges is not None
-        privileges["columns"] = connection.execute(_COLUMNS_SQL, (role_oid, table_oid)).fetchall()
-        policy_rows = connection.execute(_POLICIES_SQL, (role_oid, table_oid)).fetchall()
-        policies = []
-        for row in policy_rows:
-            row["command"] = _COMMANDS[row.pop("command_code")]
-            row["predicates_redacted"] = True
-            policies.append(row)
-        if explain:
-            shapes = connection.execute(_POLICY_SHAPES_SQL, (table_oid, table_oid)).fetchall()
-            for policy in policies:
-                policy["condition_shapes"] = [
-                    item for item in shapes if item["policy"] == policy["name"]
-                ]
-        applies, conclusions = _conclusions(table_info, role_info, privileges, policies)
-        public_table = {
-            key: value
-            for key, value in table_info.items()
-            if key not in {"oid", "schema_oid", "owner_oid"}
-        }
-        public_table["rls_applies_to_requested_role"] = applies
-        public_role = {key: value for key, value in role_info.items() if key != "oid"}
-        return {
-            "database": database,
-            "table": public_table,
-            "role": public_role,
-            "privileges": privileges,
-            "policies": policies,
-            "conclusions": conclusions,
-            "limitations": [
-                "Only the explicitly named ordinary or partitioned table "
-                "and supplied role are inspected.",
-                "The supplied role is not proof of the role executed by PostgREST.",
-                "Policy expression text is not collected; policy predicates and data visibility "
-                "are not evaluated.",
-                "Auth dependency flags include only direct auth.uid, auth.jwt, and auth.role "
-                "function references; hidden dependencies remain unknown.",
-                "Views, functions, inheritance/partition entry points, session settings, "
-                "JWT claims, and other referenced objects need separate runtime verification.",
-                "Column-scoped privileges must be compared with the exact requested columns.",
-            ],
-        }
+    return _with_database(
+        dsn, lambda connection: _inspect_connection(connection, schema, table, role, explain)
+    )
 
-    return _with_database(dsn, operation)
+
+def _inspect_connection(
+    connection: psycopg.Connection[dict[str, Any]],
+    schema: str,
+    table: str,
+    role: str,
+    explain: bool,
+) -> dict[str, Any]:
+    database = _database(connection)
+    role_info = connection.execute(_ROLE_SQL, (role,)).fetchone()
+    if role_info is None:
+        raise InspectorError(
+            "ROLE_NOT_FOUND", "The selected role was not found in the PostgreSQL catalog."
+        )
+    table_info = connection.execute(_TABLE_SQL, (schema, table)).fetchone()
+    if table_info is None:
+        raise InspectorError(
+            "TABLE_NOT_FOUND", "The selected relation was not found in the PostgreSQL catalog."
+        )
+    if table_info["kind"] not in {"r", "p"}:
+        raise InspectorError(
+            "UNSUPPORTED_RELATION",
+            "Only ordinary and partitioned tables are supported; "
+            "view and foreign-table behavior is not inferred.",
+        )
+    role_oid, table_oid = role_info["oid"], table_info["oid"]
+    privileges = connection.execute(
+        _PRIVILEGES_SQL,
+        (
+            role_oid,
+            table_info["schema_oid"],
+            role_oid,
+            table_oid,
+            role_oid,
+            table_oid,
+            role_oid,
+            table_info["owner_oid"],
+        ),
+    ).fetchone()
+    assert privileges is not None
+    privileges["columns"] = connection.execute(_COLUMNS_SQL, (role_oid, table_oid)).fetchall()
+    policy_rows = connection.execute(_POLICIES_SQL, (role_oid, table_oid)).fetchall()
+    policies = []
+    for row in policy_rows:
+        row["command"] = _COMMANDS[row.pop("command_code")]
+        row["predicates_redacted"] = True
+        policies.append(row)
+    if explain:
+        shapes = connection.execute(_POLICY_SHAPES_SQL, (table_oid, table_oid)).fetchall()
+        for policy in policies:
+            policy["condition_shapes"] = [
+                item for item in shapes if item["policy"] == policy["name"]
+            ]
+    applies, conclusions = _conclusions(table_info, role_info, privileges, policies)
+    public_table = {
+        key: value
+        for key, value in table_info.items()
+        if key not in {"oid", "schema_oid", "owner_oid"}
+    }
+    public_table["rls_applies_to_requested_role"] = applies
+    public_role = {key: value for key, value in role_info.items() if key != "oid"}
+    return {
+        "database": database,
+        "table": public_table,
+        "role": public_role,
+        "privileges": privileges,
+        "policies": policies,
+        "conclusions": conclusions,
+        "limitations": [
+            "Only the explicitly named ordinary or partitioned table "
+            "and supplied role are inspected.",
+            "The supplied role is not proof of the role executed by PostgREST.",
+            "Policy expression text is not collected; policy predicates and data visibility "
+            "are not evaluated.",
+            "Auth dependency flags include only direct auth.uid, auth.jwt, and auth.role "
+            "function references; hidden dependencies remain unknown.",
+            "Views, functions, inheritance/partition entry points, session settings, "
+            "JWT claims, and other referenced objects need separate runtime verification.",
+            "Column-scoped privileges must be compared with the exact requested columns.",
+        ],
+    }
 
 
 _DISCOVER_TABLES = """

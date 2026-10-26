@@ -7,9 +7,21 @@ Its purpose is to check whether another maintainer can reproduce the product
 without the original developer's installed tools or private setup knowledge.
 Running it again on the original machine does not establish clean-machine setup.
 
+## 0. Primary existing-database journey
+
+Use an approved database you control; record no credentials. With only uv and the
+checkout, launch `.\rls-doctor.cmd` or the README uv command. Confirm first-run
+dependency preparation, field-by-field connection, hidden password, table/role
+selection and the initial report. Close/reopen; confirm profile reuse. In the menu
+diagnose, view the schema, change target, switch EN/RU, export one JSON and reconnect.
+Verify a second export to the same destination is refused. Runtime visibility must
+remain UNKNOWN unless separately observed. Catalog diagnosis must not change rows/policies.
+This is a manual acceptance gate; automated/local runs do not establish a fresh-machine pass.
+
 ## 1. Prepare and identify the candidate
 
-Install the tools listed in the [README prerequisites](../README.md#quick-start):
+For the optional lab steps below, install the tools listed in the
+[README examples](../README.md#optional-sdk-and-examples):
 Git for cloning, Node.js 22.12+/24, pnpm 11.25.0, uv 0.13.5 and Docker Desktop.
 Start Docker Desktop and wait for its Linux engine to run. The Windows launcher
 prepares Python 3.12 and locates/downloads pinned Supabase CLI 2.121.0.

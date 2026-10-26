@@ -2,6 +2,21 @@
 
 ## Unreleased — 0.1.0 implementation
 
+- Add a runtime-only Windows launcher and a guided start menu for existing databases.
+- Use separate connection fields by default; keep hidden DSN input as an advanced option.
+- Reuse approved credentials within a session; support target/language changes, JSON export and reconnect.
+- Add bounded multi-table schema overviews in one read-only catalog snapshot, with explicit runtime uncertainty.
+- Check installed console entry points and document the minimal uv-only onboarding path in EN/RU.
+
+
+- Preserve safe SQLSTATE and failure phase with fixed operational categories and
+  actionable EN/RU guidance; never guess a connection cause from raw error text.
+- Add common CLI diagnosis IDs/times, distinct capture timestamps and stable
+  console/export metadata without changing captured evidence.
+- Keep inspector errors alongside observed HTTP results in combined replay reports.
+- Add actual disabled-RLS and physically empty permitted-table regressions;
+  maintain T01–T12 coverage within existing development documentation.
+
 - Add read-only connection wizard, bounded table/role discovery and reusable
   non-secret profiles; repeated diagnosis needs only a hidden password.
 - Add backward-compatible event 1.1 project/API/schema/projection binding and

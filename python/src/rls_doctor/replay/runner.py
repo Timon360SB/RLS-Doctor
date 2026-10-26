@@ -16,6 +16,7 @@ from rls_doctor.identity.validation import bounded_json, bounded_response, local
 from rls_doctor.postgres.inspector import InspectorError, inspect_table
 from rls_doctor.replay.assertions import aggregate, compare, error_class
 from rls_doctor.replay.scenarios import Scenario
+from rls_doctor.reports.operational import database_error_details
 
 
 def complete_result(count: int | None, content_range: str | None) -> bool:
@@ -74,6 +75,7 @@ def replay(
     }
     if event is not None:
         report["event_id"] = event.event_id
+        report["captured_at"] = event.timestamp
         report["findings"].extend(analyze_event(event, expected_role))
     with httpx.Client(
         timeout=5, follow_redirects=False, trust_env=False, transport=transport
@@ -184,7 +186,8 @@ def replay(
                 resource,
                 confirmed or scenario.identity.type,
             )
-        except InspectorError:
+        except InspectorError as error:
+            report["inspector"] = {"result": "ERROR", "error": database_error_details(error)}
             report["checks"].append({"check": "postgres_inspection", "result": "ERROR"})
     report["result"] = aggregate(report["checks"])
     return report

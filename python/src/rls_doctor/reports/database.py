@@ -50,6 +50,7 @@ def database_capture_report(
         "resource": table,
         "event_id": event.event_id,
         "timestamp": event.timestamp,
+        "captured_at": event.timestamp,
         "method": event.request.method,
         "identity": {
             "expected_role": role,
