@@ -2,94 +2,139 @@
 
 [Русский](existing-database.ru.md)
 
-The primary workflow reads access-control settings in your existing PostgreSQL or
-Supabase database. No fixture, synthetic user, YAML scenario, SDK or identity RPC
-is required. The command reads catalogs only in a read-only transaction, with
-statement/lock timeouts. It does not query customer rows or change policies.
+Use Python and uv for your PostgreSQL/Supabase database. No Docker, Node.js,
+fixture users or YAML scenarios are required. Node.js is needed only for optional
+application SDK integration.
 
-## Connect
+## Guided connection and reuse
 
-From the source checkout, install Python dependencies with
-`uv sync --project python --frozen`, then run:
+```powershell
+uv sync --project python --frozen
+uv run --project python rls-doctor connect
+```
+
+Enter the database hostname/IP, approve catalog-only access, then paste a PostgreSQL
+DSN into the hidden prompt. Select a table and role by number. Optionally enter your
+Supabase API origin (HTTPS origin only, no paths, keys or query parameters).
+
+The wizard verifies read-only catalog access, inspects the selection and saves
+`.rls-doctor/project.json`. This ignored runtime file contains host, port, database,
+username, table, role, TLS mode/CA path, optional API origin and a random project UUID.
+It contains no password, DSN or token. Choose a different new path with --profile;
+existing files are refused. Successful setup exits 0; the report still states UNKNOWN
+row visibility.
+
+```powershell
+uv run --project python rls-doctor diagnose
+uv run --project python rls-doctor diagnose --profile PATH_TO_PROFILE.json --guide
+```
+
+Repeat diagnosis asks for approval and only the hidden password. No DSN copying is
+needed. For unattended use supply RLS_DOCTOR_DATABASE_URL privately, then add
+--approve-read-only --format json. The DSN must match the saved host/port/database/user.
+Never place real credentials in arguments, reports, Git or chat.
+
+The original explicit form remains available without a profile:
 
 ```powershell
 uv run --project python rls-doctor diagnose public.orders --host YOUR_DATABASE_HOST --role authenticated
 ```
 
-Replace table, exact host and role with your real target. Explicitly confirm the
-catalog-only connection. If RLS_DOCTOR_DATABASE_URL is not already supplied through
-your private environment/secret manager, paste the PostgreSQL connection string
-into the hidden terminal prompt. It is not saved. Never put the real DSN/password
-in command arguments, Git, reports or chat. Do not use a Supabase API key here:
-this is a PostgreSQL connection. Prefer a least-privilege inspection login.
+This prompts for a hidden DSN or uses --connection-env NAME. A saved profile defines
+its own environment-reference name.
 
-Node.js, pnpm and Docker are not required for this Python catalog-only command.
-The local lab and SDK remain optional, separately documented workflows.
+## Investigation and policy shapes
 
-## Remote TLS
+The report orders grant/default-deny blockers, RLS applicability, authorization,
+policy conditions and remaining row-visibility questions. --guide asks only
+coarse yes/no/unknown questions about independent data existence, actual filters
+and runtime role checks. It never asks for row values, tokens or SQL. Operator
+statements remain UNVERIFIED; they cannot promote the outcome to a proven cause.
 
-Non-loopback connections require verify-full TLS: both CA trust and hostname
-verification. The DSN may specify sslrootcert with a trusted CA file provided by
-your database operator; otherwise libpq uses sslrootcert=system. A provider using
-a private CA requires its CA, not a weaker TLS mode. This implementation uses the
-locked Psycopg binary/libpq 18 client; client-certificate/GSS authentication is not
-supported by this initial path. Use a direct/session database endpoint that accepts
-ordinary PostgreSQL transactions and startup settings.
+Server-side structural classification recognizes constant true/false and exact
+comparisons of auth.uid() with a column, including a simple SELECT auth.uid() form.
+It respects permissive OR versus restrictive AND composition. Both USING and
+WITH CHECK are described structurally. Raw expression text/literals never leave
+PostgreSQL; policy functions are not executed. Complex expressions, casts,
+unsupported types and hidden dependencies remain unrecognized. No arbitrary
+predicate evaluation or automated SQL repair is performed.
 
-Example connection-string structure for the hidden prompt (placeholders only):
+## Bind application metadata
+
+Use the projectId and allowedOrigin printed by connect in your SDK options:
+
+```typescript
+import { createCaptureFetch, createJsonFileSink } from '@rls-doctor/capture-sdk';
+
+const captureFetch = createCaptureFetch(fetch, {
+  enabled: true,
+  projectId: 'UUID_FROM_CONNECT',
+  allowedOrigin: 'https://YOUR_PROJECT.supabase.co',
+  resources: ['orders'],
+  verifyAuth: true,
+  sink: createJsonFileSink({ directory: '.rls-doctor/captures' }),
+});
+// Supply captureFetch as global.fetch when creating your Supabase client.
+```
+
+Project binding opts into event 1.1: project UUID, API-origin SHA-256 (never a token
+hash), Accept-Profile schema and simple selected-column names. Complex projections
+are unknown. Filter values and customer rows are omitted. Without projectId the SDK
+continues to emit event 1.0. New readers accept both versions; old 1.0-only readers
+reject 1.1 explicitly. Use matching SDK/Python previews for binding.
+
+verifyAuth defaults off. Enabling it explicitly permits an extra GET /auth/v1/user
+to the same origin with that request's headers. Redirects are refused; the check
+is bounded to 3 seconds/32 KiB. Auth data is inspected only in memory; the event
+contains a state, never user ID/email/token/body. Application request arguments,
+Promise and Response are preserved, and its body is never read. The application
+response is not held back; the diagnostic event may arrive later.
+
+```powershell
+uv run --project python rls-doctor diagnose --event PATH_TO_EVENT.json --guide
+```
+
+Bound events require the saved profile. Mismatched project ID, API-origin digest,
+schema or resource is rejected before connecting. A configuration match is not
+cryptographic proof of actual API-to-database routing. A valid Auth user session
+does not establish the executed PostgreSQL role or an earlier auth.uid value.
+The captured event is not replayed.
+
+## Remote TLS and least privilege
+
+Prefer a restricted inspector account; customer-row SELECT is unnecessary for
+catalog access. Provider-specific catalog restrictions may still apply. Use a
+direct/session endpoint supporting normal transactions and startup settings.
+Client certificate and GSS authentication are unsupported.
+
+Non-numeric-loopback hosts require verify-full TLS (trusted CA and server-name
+verification). sslrootcert defaults to system; supply an operator-trusted CA file
+for private CAs. Its absolute path is retained in the profile, not its contents.
+The locked Psycopg binary uses libpq 18. Placeholder-only DSN example:
 
 ```text
-host=YOUR_DATABASE_HOST port=5432 dbname=YOUR_DATABASE user=INSPECTOR password=YOUR_PASSWORD sslmode=verify-full sslrootcert=PATH_TO_TRUSTED_CA
+host=YOUR_DATABASE_HOST port=5432 dbname=postgres user=INSPECTOR password=YOUR_PASSWORD sslmode=verify-full sslrootcert=PATH_TO_TRUSTED_CA
 ```
 
-An explicit numeric loopback connection can use sslmode=disable for local services.
-Host/port/database/user are required. Arbitrary options, service files, hostaddr
-and multi-host overrides are rejected; resolved IP is pinned while TLS verifies
-the approved hostname. The existing local replay allowlist is unchanged.
+Numeric loopback permits sslmode=disable. Arbitrary options/service/hostaddr and
+multi-host DSNs are rejected. DNS pins the first IPv4 address, or the first other
+address family; automatic connection failover is not implemented. The hostname
+remains available for certificate verification.
 
-## What you receive
+## Results and export
 
-The report shows RLS/FORCE RLS, role/owner/bypass information, schema/table/column
-privileges and policy applicability/composition. Missing SELECT, schema USAGE or
-permissive policies are concrete configuration findings. Policy expressions and
-user rows are not collected, so actual request identity, predicate behavior and
-row visibility remain unverified. UNKNOWN refers to that runtime uncertainty;
-individual catalog facts remain useful and explicitly labelled.
-
-For unattended output, supply the chosen environment reference privately:
+Reports include diagnosis ID/time, selected role, privileges, RLS/FORCE, policy
+shapes and ordered next actions. Captured-request time is separate. UNKNOWN runtime
+visibility does not hide established configuration blockers. connect/diagnose never
+change rows, policies or users, and never execute application queries/probes.
 
 ```powershell
-uv run --project python rls-doctor diagnose public.orders --host YOUR_DATABASE_HOST --approve-read-only --format json --output .rls-doctor/reports/database-1.json
+uv run --project python rls-doctor diagnose --approve-read-only --format json --output .rls-doctor/reports/database-1.json
 ```
 
-JSON mode never prompts for approval or credentials. Use --connection-env NAME for
-a different environment reference. Existing output files are preserved.
+Supply the DSN privately beforehand for JSON mode. Existing exports are preserved.
+diagnose exit codes remain 0 PASS, 1 FAIL, 2 UNKNOWN, 3 operational error.
 
-
-## Diagnose an application request alongside the database
-
-If the SDK already saved a sanitized JSON event, attach it to the diagnosis:
-
-```powershell
-uv run --project python rls-doctor diagnose public.orders --host YOUR_DATABASE_HOST --role authenticated --event PATH_TO_EVENT.json
-```
-
-The combined report includes the saved HTTP status and available Content-Range
-row count, authorization-header presence, filter columns/operators in JSON and
-catalog findings for the selected table. Missing authorization and missing SELECT,
-for example, appear as separate observations with actionable next steps.
-The event is validated before connecting; resource-name mismatches are rejected.
-
-A matching table name does not establish the original database, API schema or
-executed role. Independently compare these with application configuration.
-Catalogs describe inspection time; settings may have changed since capture.
-No application request is replayed and no customer rows are read. The overall
-outcome remains UNKNOWN until runtime behavior/root cause is established.
-Use analyze for an offline workflow without database/network access.
-
-## Verification boundary
-
-The catalog-only command was executed against existing local PostgreSQL tables,
-including missing-GRANT diagnosis, without setup/users/HTTP requests. Remote host
-matching, TLS requirements and rejection/privacy paths have automated tests.
-No actual hosted/customer database or remote TLS connection has been verified yet.
+Real verification covers disposable TLS PostgreSQL with a restricted inspector,
+CA/name/expiry rejection, and local Supabase SDK/Auth integration. No actual
+external hosted/customer project has been verified yet.

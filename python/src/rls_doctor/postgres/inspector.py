@@ -1,11 +1,11 @@
 """Inspect catalog facts for an explicitly selected role and table.
 
-The caller must validate/approve the DSN against the local database allowlist.
+The caller must validate and explicitly approve the database DSN before connecting.
 Neither DSNs nor database exception text are included in returned diagnostics.
 Only PostgreSQL 16, 17, and 18 have been selected for this initial implementation.
-Policy expressions are deliberately never fetched: even a literal inside a policy
-can contain a secret. Presence flags and direct auth-function dependencies are
-enough to identify the boundary of this static inspection.
+Raw policy expressions are never returned: a literal can contain a secret.
+Optional server-side classification returns only supported shape enums and column
+identifiers. Arbitrary predicates and custom-type semantics remain unverified.
 """
 
 from __future__ import annotations
@@ -323,7 +323,9 @@ def _conclusions(
     return rls_applies, results
 
 
-def inspect_table(dsn: str, schema: str, table: str, role: str) -> dict[str, Any]:
+def inspect_table(
+    dsn: str, schema: str, table: str, role: str, explain: bool = False
+) -> dict[str, Any]:
     """Inspect a table for an explicit role on a prevalidated database DSN.
 
     Views, foreign tables, materialized views, and other relation kinds are
@@ -378,6 +380,12 @@ def inspect_table(dsn: str, schema: str, table: str, role: str) -> dict[str, Any
             row["command"] = _COMMANDS[row.pop("command_code")]
             row["predicates_redacted"] = True
             policies.append(row)
+        if explain:
+            shapes = connection.execute(_POLICY_SHAPES_SQL, (table_oid, table_oid)).fetchall()
+            for policy in policies:
+                policy["condition_shapes"] = [
+                    item for item in shapes if item["policy"] == policy["name"]
+                ]
         applies, conclusions = _conclusions(table_info, role_info, privileges, policies)
         public_table = {
             key: value
@@ -408,3 +416,76 @@ def inspect_table(dsn: str, schema: str, table: str, role: str) -> dict[str, Any
         }
 
     return _with_database(dsn, operation)
+
+
+_DISCOVER_TABLES = """
+SELECT n.nspname AS schema, c.relname AS name
+FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+WHERE c.relkind IN ('r','p') AND n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'
+AND n.nspname ~ '^[a-zA-Z_][a-zA-Z0-9_]{0,62}$'
+AND c.relname ~ '^[a-zA-Z_][a-zA-Z0-9_]{0,62}$'
+ORDER BY n.nspname, c.relname LIMIT 201
+"""
+_DISCOVER_ROLES = """
+SELECT rolname AS name FROM pg_catalog.pg_roles
+WHERE rolname !~ '^pg_' AND rolname ~ '^[a-zA-Z_][a-zA-Z0-9_]{0,62}$'
+ORDER BY CASE WHEN rolname='authenticated' THEN 0 WHEN rolname='anon' THEN 1 ELSE 2 END,
+rolname LIMIT 201
+"""
+
+
+def discover_database(dsn: str) -> dict[str, Any]:
+    """Discover bounded catalog names only; SELECT on customer rows is unnecessary."""
+
+    def operation(connection: psycopg.Connection[dict[str, Any]]) -> dict[str, Any]:
+        database = _database(connection)
+        tables = connection.execute(_DISCOVER_TABLES).fetchall()
+        roles = connection.execute(_DISCOVER_ROLES).fetchall()
+        return {
+            "database": database,
+            "tables": tables[:200],
+            "roles": roles[:200],
+            "truncated": len(tables) > 200 or len(roles) > 200,
+            "catalog_access": True,
+        }
+
+    return _with_database(dsn, operation)
+
+
+# Only enums and catalog column identifiers cross the connection. Raw expressions,
+# literals and arbitrary SQL values stay on the server and are never executed.
+# Exact whole-expression shapes only: removing parentheses cannot turn OR/AND,
+# literals, casts or custom functions into a recognized equality.
+_POLICY_SHAPES_SQL = """
+WITH expressions AS (
+ SELECT p.polname AS policy, x.scope, x.expr,
+ CASE WHEN
+   (x.expr::text !~ ':consttype ' OR x.expr::text ~ '^[{]CONST :consttype 16 ')
+   AND NOT EXISTS (
+     SELECT 1 FROM pg_catalog.regexp_matches(x.expr::text,
+       ':(?:consttype|vartype|funcresulttype|opresulttype|resulttype) ([0-9]+)', 'g') AS t
+     WHERE t[1]::integer NOT IN (16,20,21,23,25,1043,2950)
+   )
+ THEN regexp_replace(pg_catalog.pg_get_expr(x.expr, p.polrelid, true),
+                '[()[:space:]]', '', 'g') ELSE NULL END AS normalized
+ FROM pg_catalog.pg_policy p
+ CROSS JOIN LATERAL (VALUES ('USING', p.polqual), ('WITH_CHECK', p.polwithcheck)) x(scope,expr)
+ WHERE p.polrelid=%s::oid
+), columns AS (
+ SELECT attname FROM pg_catalog.pg_attribute
+ WHERE attrelid=%s::oid AND attnum>0 AND NOT attisdropped
+ AND attname ~ '^[a-zA-Z_][a-zA-Z0-9_]{0,62}$'
+)
+SELECT e.policy, e.scope,
+ CASE WHEN e.expr IS NULL THEN 'ABSENT'
+      WHEN e.normalized='true' THEN 'ALWAYS_TRUE'
+      WHEN e.normalized='false' THEN 'ALWAYS_FALSE'
+      WHEN c.attname IS NOT NULL THEN 'AUTH_UID_EQUALS_COLUMN'
+      ELSE 'UNRECOGNIZED' END AS shape,
+ c.attname AS column
+FROM expressions e LEFT JOIN LATERAL (
+ SELECT attname FROM columns WHERE e.normalized IN
+ ('auth.uid='||attname, attname||'=auth.uid',
+ 'SELECTauth.uidASuid='||attname, attname||'=SELECTauth.uidASuid') LIMIT 1
+) c ON true ORDER BY e.policy, e.scope
+"""

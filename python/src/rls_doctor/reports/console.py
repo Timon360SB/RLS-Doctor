@@ -17,6 +17,12 @@ def word(language: Language, en: str, ru: str) -> str:
 
 
 FACTS_RU = {
+    "AUTH_USER_VERIFIED": (
+        "Supabase Auth подтвердил пользовательскую сессию; ID не сохранён."
+        " Роль PostgreSQL не установлена."
+    ),
+    "AUTH_USER_REJECTED": "Supabase Auth отклонил авторизацию при явной проверке.",
+    "AUTH_CHECK_UNAVAILABLE": "Явная проверка Auth не установила действительную сессию.",
     "HTTP_OBSERVED": "Получены метаданные HTTP; наличие заголовка не подтверждает личность.",
     "NETWORK_FAILURE_OBSERVED": "SDK зафиксировал сетевую ошибку без HTTP-статуса.",
     "HTTP_STATUS_UNAVAILABLE": "HTTP-статус не получен; тип ошибки не установлен.",
@@ -132,6 +138,8 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
     table = Table(show_header=False, box=None, padding=(0, 2))
     for key, en, ru in (
         ("run_id", "Run", "Проверка"),
+        ("diagnosis_id", "Diagnosis", "Диагностика"),
+        ("diagnosed_at", "Inspected at", "Время диагностики"),
         ("event_id", "Event", "Событие"),
         ("timestamp", "Time", "Время"),
         ("resource", "Resource", "Ресурс"),
@@ -162,6 +170,11 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
     }
     inspector = report.get("inspector") or (report if "policies" in report else {})
     catalog = inspector.get("table") or {}
+    if inspector.get("role", {}).get("name"):
+        table.add_row(
+            Text(word(language, "Selected database role", "Выбранная роль базы")),
+            Text(inspector["role"]["name"]),
+        )
     for key, en, ru in (
         ("rls_enabled", "RLS enabled", "RLS включён"),
         ("rls_forced", "FORCE RLS", "FORCE RLS"),
@@ -344,6 +357,25 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
         console.print(Text(word(language, "Error: ", "Ошибка: ") + error["code"]))
         console.print(Text(error["message"]))
     session_hints = {
+        "PROJECT_PROFILE_EXISTS": (
+            "Run diagnose with this profile, or choose a new --profile path for setup.",
+            "Запустите diagnose с этим профилем или выберите новый путь --profile для настройки.",
+        ),
+        "PROJECT_REQUIRED": (
+            "Run rls-doctor connect to select your database, table and role.",
+            "Запустите rls-doctor connect для выбора базы, таблицы и роли.",
+        ),
+        "EVENT_PROJECT_MISMATCH": (
+            "Choose the profile used by this capture; compare project ID, API origin and schema.",
+            "Выберите профиль этого события; сверьте ID проекта, адрес API и схему.",
+        ),
+        "PROJECT_CONNECTION_MISMATCH": (
+            "Use the saved host, database and username; a different database needs a new profile.",
+            (
+                "Используйте адрес, базу и пользователя профиля; для другой базы "
+                "создайте отдельный профиль."
+            ),
+        ),
         "REPORT_EXISTS": (
             "Choose a new --output filename; existing files are never overwritten.",
             "Выберите новое имя --output: существующие файлы не перезаписываются.",
@@ -388,6 +420,16 @@ def render(report: dict[str, Any], format: str = "console", language: Language =
     }
     session_hint = session_hints.get(error["code"]) if error else None
     recommendations = report.get("recommendations", [])
+    if report.get("investigation"):
+        console.print("\n" + word(language, "Investigation", "Расследование"))
+        for index, step in enumerate(report["investigation"], 1):
+            state = step["state"]
+            label = {
+                "ESTABLISHED": ("established", "установлено"),
+                "CHECKED": ("checked", "проверено"),
+                "NEEDS_EVIDENCE": ("needs evidence", "нужны сведения"),
+            }.get(state, (state, state))
+            console.print(Text(f"{index}. [{word(language, *label)}] " + step[language]))
     console.print("\n" + word(language, "Next steps", "Следующие действия"))
     for en, ru in actions:
         console.print(Text("  • " + word(language, en, ru)))

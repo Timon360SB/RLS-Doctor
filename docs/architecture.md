@@ -3,7 +3,7 @@
 RLS Doctor 0.1.0 targets Node.js 22/24 and Python 3.12+. This is an initial
 implementation, not a published or independently validated release.
 
-Capture produces only schema v1 metadata. An explicit origin and resource allowlist
+Capture defaults to schema 1.0; explicit project binding produces schema 1.1 metadata. An explicit origin and resource allowlist
 is required; capture is off by default. A wrapped fetch receives exactly the same
 arguments and returns the original response without reading its body. Row counts
 are inferred only from a valid Content-Range header. Error bodies and JWT claims
@@ -56,9 +56,25 @@ must never be applied to production. Full Supabase E2E requires Docker.
 
 ### Existing-database request context
 
-`diagnose --event` validates a sanitized capture and requires its resource name
-to match the selected table before opening a connection. It combines independent
-capture observations and read-only catalog findings, without replay. Event v1
-has no database endpoint or schema; the endpoint/schema/runtime-role association
-is explicitly UNVERIFIED. Catalog timestamps may differ from capture timestamps.
-No event schema or SDK changes are required; filters retain names/operators only.
+connect discovers bounded table/role names, checks catalog access and saves a
+strict profile without credentials. diagnose reuses it with a hidden password or
+private DSN reference. Profiles retain TLS settings and must match the supplied
+endpoint/database/user. No setup command changes schema, policies, rows or users.
+
+Default SDK events remain 1.0. Explicit projectId enables strict event 1.1 with
+project UUID, API-origin SHA-256, Accept-Profile schema, simple projection metadata
+and optional bounded Auth-check outcome. Both schemas are packaged and supported
+by new Python readers; old readers explicitly reject 1.1. Review the shared change
+across both workstreams before merging. No old event is silently upgraded.
+
+diagnose --event rejects mismatched profile/API/schema/resource before connecting.
+Configuration matching is not attestation of actual server routing or runtime role.
+Auth verification observes only user-session acceptance at check time. Raw tokens,
+user IDs and response bodies are not serialized; PostgreSQL role remains unknown.
+
+The inspector classifies a narrow set of conditions on the server, returning enums
+and column names only. Literal-bearing/custom-type expressions remain opaque.
+Policy functions are never run. Investigation combines independent observations,
+constant-policy composition and explicit unknowns, with separate diagnosis time/ID.
+--guide collects coarse operator statements, labels them UNVERIFIED and chooses
+a next action without promoting them to database facts. No original GET is replayed.

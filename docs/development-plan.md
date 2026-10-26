@@ -14,6 +14,10 @@ Remote catalog access requires verified TLS; remote replay remains excluded.
 Optional `diagnose --event` now combines sanitized application metadata and
 selected catalog findings, with an explicit unverified endpoint/schema/role link.
 No replay or user-row queries are performed.
+Implemented: guided connect, non-secret reusable profiles, bound event 1.1 with
+API/schema/projection metadata, opt-in Auth user verification, server-side narrow
+policy shapes and ordered/interactive investigation. Controlled TLS PostgreSQL
+and local SDK/Auth integration have real evidence; a dedicated runner is in CI.
 No actual hosted/customer connection has been verified yet. Local scenarios,
 lab/SDK capture and the optional detailed wizard support this primary workflow.
 

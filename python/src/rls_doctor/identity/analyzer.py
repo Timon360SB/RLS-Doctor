@@ -46,4 +46,27 @@ def analyze_event(event: DiagnosticEvent, expected_role: str | None = None) -> l
                 "summary": "Zero rows may reflect filters, missing data or RLS; cause is unknown.",
             }
         )
+    auth_checks = {
+        "verified_user": (
+            "AUTH_USER_VERIFIED",
+            "OBSERVED",
+            (
+                "Supabase Auth accepted a user session in the opt-in check; no "
+                "user ID was retained and PostgreSQL role remains unverified."
+            ),
+        ),
+        "rejected": (
+            "AUTH_USER_REJECTED",
+            "OBSERVED",
+            "Supabase Auth rejected authorization in the opt-in check.",
+        ),
+        "unavailable": (
+            "AUTH_CHECK_UNAVAILABLE",
+            "UNVERIFIED",
+            "The opt-in Auth check could not establish a user session.",
+        ),
+    }
+    if event.auth_check in auth_checks:
+        code, evidence, summary = auth_checks[event.auth_check]
+        facts.append({"code": code, "evidence": evidence, "summary": summary})
     return facts

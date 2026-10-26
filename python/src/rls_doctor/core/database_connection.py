@@ -57,6 +57,8 @@ def inspection_dsn(raw: str, expected_host: str, *, approved: bool) -> str:
         values["gssdelegation"] = "0"
         # DNS is resolved only after approval/TLS checks; host still verifies the certificate.
         candidates = socket.getaddrinfo(host, int(values["port"]), type=socket.SOCK_STREAM)
+        # Prefer IPv4 when a name offers both families; keep the name for TLS checks.
+        candidates.sort(key=lambda item: item[0] != socket.AF_INET)
         values["hostaddr"] = str(ipaddress.ip_address(candidates[0][4][0]))
         values["connect_timeout"] = "5"
         return make_conninfo(**values)

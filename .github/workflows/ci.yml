@@ -149,6 +149,8 @@ jobs:
         run: |
           supabase status --workdir fixtures --output json 2>/dev/null |
             uv run --project python python scripts/e2e.py --status-stdin
+      - name: Existing database TLS, least-privilege and bound Auth capture
+        run: uv run --project python python scripts/database_check.py --workdir fixtures
       - name: Managed session JSON contract and exit codes
         # The checker retains local status in memory; raw logs/keys are never emitted.
         run: uv run --project python python scripts/session_check.py --workdir fixtures

@@ -2,14 +2,18 @@ export type FilterOperator = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "is";
 
 /** Only metadata allowed by schemas/diagnostic-event-v1.schema.json. */
 export interface DiagnosticEvent {
-  readonly schema_version: "1.0";
+  readonly schema_version: "1.0" | "1.1";
   readonly event_id: string;
   readonly timestamp: string;
   readonly duration_ms: number;
+  readonly binding?: { readonly project_id: string; readonly origin_sha256: string };
+  readonly auth_check?: "not_checked" | "no_authorization" | "verified_user" | "rejected" | "unavailable";
   readonly request: {
     readonly method: "GET";
     readonly api: "rest";
     readonly resource: string;
+    readonly schema?: string;
+    readonly columns?: readonly string[] | null;
     readonly filters: readonly { readonly column: string; readonly operator: FilterOperator }[];
   };
   readonly response: {
@@ -27,6 +31,10 @@ export type CaptureSink = (event: DiagnosticEvent) => void | Promise<void>;
 export type DiagnosticErrorCode = "metadata_failed" | "sink_failed";
 
 export interface CaptureOptions {
+  /** Non-secret UUID copied from a saved database profile. Enables schema 1.1. */
+  readonly projectId?: string;
+  /** Explicit extra Auth GET with the same request headers; never persists tokens or user IDs. */
+  readonly verifyAuth?: boolean;
   /** Capture is disabled unless explicitly true. */
   readonly enabled?: boolean;
   /** Exact HTTP(S) origin; paths, credentials, query strings and fragments are rejected. */

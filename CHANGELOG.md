@@ -2,6 +2,15 @@
 
 ## Unreleased — 0.1.0 implementation
 
+- Add read-only connection wizard, bounded table/role discovery and reusable
+  non-secret profiles; repeated diagnosis needs only a hidden password.
+- Add backward-compatible event 1.1 project/API/schema/projection binding and
+  explicitly enabled, bounded Supabase Auth user verification without token/ID storage.
+- Explain narrow policy condition shapes on PostgreSQL without exporting SQL/literals;
+  provide ordered investigation, constant-denial composition and non-secret follow-up questions.
+- Verify actual TLS CA/name/expiry rejection, restricted catalog access and bound
+  SDK/Auth flow in a disposable integration runner; keep temporary builds outside the checkout.
+
 - Combine existing-database catalogs and sanitized request metadata with `diagnose --event`; show unverified database/schema/role linkage and bilingual next steps.
 
 - Add primary diagnose command for existing PostgreSQL/Supabase tables and roles,

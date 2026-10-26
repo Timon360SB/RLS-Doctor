@@ -25,23 +25,23 @@ Trace requests and run local checks when more evidence is needed.
 
 ## Diagnose an existing database
 
-This is the primary workflow: connect to your existing PostgreSQL/Supabase
-instance and inspect access settings for a table and role. No test scenarios,
-synthetic users, SDK or identity probe are needed.
+Connect your own PostgreSQL/Supabase database, choose a table/role and receive an
+ordered investigation without fixtures, YAML or customer-row reads:
 
 ```powershell
 uv sync --project python --frozen
-uv run --project python rls-doctor diagnose public.orders --host YOUR_DATABASE_HOST --role authenticated
+uv run --project python rls-doctor connect
+uv run --project python rls-doctor diagnose --guide
 ```
 
-Use your actual table/host/role. Approve the connection, then enter the PostgreSQL
-connection string in the hidden prompt, or use a private environment reference.
-Remote connections require verify-full TLS. Only catalogs are read; no user rows
-or policies are modified. See [English](docs/existing-database.md) /
-[Русский](docs/existing-database.ru.md) for credentials, CA certificates and limits.
-This command needs Python/uv, not Docker/Node.js. The lab and replay below are optional.
+Setup saves a non-secret profile; repeat diagnosis asks only for the hidden password.
+Optional bound SDK events add API/schema metadata and explicitly enabled Auth checks:
+`diagnose --event PATH_TO_EVENT.json`. Raw policies, tokens and rows are not exported.
+Remote connections require verified TLS. Runtime role/row visibility may remain UNKNOWN.
 
-Attach a sanitized application event with `--event PATH_TO_EVENT.json` to view captured request metadata alongside catalog findings. The database/schema/runtime-role link remains unverified; no request is replayed.
+Read the [connection guide](docs/existing-database.md) / [Русский](docs/existing-database.ru.md)
+for profiles, TLS, SDK binding, export and supported policy shapes. Python/uv suffice
+for database diagnosis; Node.js, Docker and the lab below are optional workflows.
 
 ## Why RLS Doctor
 
@@ -309,15 +309,15 @@ Recorded local evidence as of **2026-10-25**; exact runs and versions are in
 
 | Area | Recorded evidence |
 | --- | --- |
-| SDK | 46 local tests; real application capture and installed archive/file-sink checks |
-| Python / shared contract | 278 tests on Python 3.12.14/Node 24 and Python 3.13.17/Node 22.23.4 |
+| SDK | 54 local tests on Node 22/24; real application capture and installed archive/file-sink checks |
+| Python / shared contract | 301 tests on Python 3.12 and 3.13 |
 | PostgreSQL | Eight tests per recorded real integration run; version coverage includes 16/17/18 |
 | Local workflows | Full Supabase E2E, 18-row practice checklist and separate custom-schema app passed |
 | Direct export | All six diagnostic commands checked for file/stdout parity; live PASS/FAIL/UNKNOWN/ERROR exports passed |
 | Packaging | Wheel, sdist and SDK archive built/audited; installed SDK/CLI exercised together |
 | Code checks | TypeScript checks and recorded SDK lint/tests; latest Python formatting/lint and strict types passed |
 
-The 278-test invocation excludes the eight integration tests; those have separate
+The 301-test invocation excludes the eight integration tests; those have separate
 actual execution evidence. These records are not live CI badges.
 
 All eight jobs in [run 40178244545](https://github.com/Timon360SB/RLS-Doctor/actions/runs/40178244545)
