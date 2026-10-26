@@ -1,5 +1,12 @@
 # Getting started
 
+For your existing database use the single start command in the README,
+or `.\rls-doctor.cmd` on Windows.
+Only uv is needed; Python/runtime dependencies are prepared as necessary.
+See [existing database](existing-database.md) / [Русский](existing-database.ru.md).
+The developer workflows below are optional and have additional prerequisites.
+
+
 For the primary existing-database workflow, start with [catalog diagnosis](existing-database.md) / [Русский](existing-database.ru.md). The fixture/replay paths below are optional.
 
 Use Node.js 22.12+/24, pnpm 11.25.0, Python 3.12+ and uv 0.13.5. Local execution

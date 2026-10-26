@@ -100,3 +100,44 @@ container/volume cleanup checks the unique ownership label.
 
 Use `python scripts/package_check.py --scratch-dir PATH_TO_TEMP_DIRECTORY` to keep
 preview build/install files outside the source checkout. This performs no publication.
+
+
+## Required scenario coverage
+
+This maps specification T01–T12 to reproducible checks, not a claim about a user's
+application. Run the unit/integration/E2E commands above; skip is never pass.
+
+| ID | Maintained check |
+| --- | --- |
+| T01 Missing authorization | scripts/e2e.py missing_auth; capture analysis unit tests |
+| T02 Authorized user | scripts/e2e.py own_row_and_other_user_denial / second_test_user |
+| T03 RLS disabled | integration/test_postgres.py test_real_disabled_rls_is_reported_without_default_deny |
+| T04 No SELECT policy | integration/test_postgres.py test_real_missing_select_grant_and_default_deny; E2E default_deny |
+| T05 Missing GRANT | Same real integration test; E2E missing_grant; database_check actual SQLSTATE 42501 |
+| T06 Wrong user | E2E own_row_and_other_user_denial / second_test_user |
+| T07 Incorrect policy | E2E tenant_isolation_leak plus result assertions |
+| T08 Actually empty table | scripts/database_check.py empty_table_check: owned empty table, permissive policy, SDK/Auth, replay and ambiguity assertion |
+| T09 Invalid token | E2E invalid_token; replay signature/expiry/issuer unit regressions |
+| T10 Unavailable database | scripts/database_check.py unavailable_check; operational error privacy tests |
+| T11 Secrets | SDK capture/file-sink tests; operational tests and live integration privacy assertions |
+| T12 Unsupported request | Strict scenario/event validation and replay endpoint/operator guards |
+
+The T08 helper creates/drops only one random synthetic table in an explicitly
+approved local fixture. A zero-row expectation can pass while the cause of an
+original empty response remains UNVERIFIED. It never labels zero rows as proof
+that an RLS predicate rejected an existing row.
+
+
+## Primary user workflow checks
+
+The runtime-only Windows entry point is rls-doctor.cmd. It uses uv and the Python
+lockfile without the developer dependency group. The Windows CI job restores its
+Python 3.13 developer environment after launcher verification.
+Unit coverage includes separate fields, hidden credentials, profile reuse,
+EN/RU switching, session reconnect, cancellation, no-overwrite export, JSON parity
+and bounded schema-overview scope/time. The real database_check runner covers
+both field/DSN onboarding, one-password menu reuse and overview export over verified
+TLS with a role lacking SELECT on customer tables. Eleven PostgreSQL integration
+tests per version cover actual catalog/grant/RLS behavior and overview truncation.
+The package checker exercises installed start/overview/connect entry points,
+python -m rls_doctor and noninteractive no-argument help.

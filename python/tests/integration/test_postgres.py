@@ -328,3 +328,49 @@ def test_real_view_semantics_are_explicitly_unsupported(local_database: dict[str
     with pytest.raises(InspectorError) as caught:
         inspect(local_database, "unsupported_view")
     assert caught.value.code == "UNSUPPORTED_RELATION"
+
+
+def test_real_disabled_rls_is_reported_without_default_deny(local_database: dict[str, Any]) -> None:
+    connection = local_database["connection"]
+    relation = sql.Identifier(local_database["schema"], "default_deny")
+    connection.execute(sql.SQL("ALTER TABLE {} DISABLE ROW LEVEL SECURITY").format(relation))
+    try:
+        report = inspect(local_database, "default_deny", "reader")
+        assert not report["table"]["rls_enabled"]
+        assert "RLS_DISABLED" in codes(report)
+        assert "NO_PERMISSIVE_SELECT_POLICY" not in codes(report)
+        assert row_count(local_database, "default_deny", "reader") == 2
+    finally:
+        connection.execute(sql.SQL("ALTER TABLE {} ENABLE ROW LEVEL SECURITY").format(relation))
+
+
+def test_real_schema_overview_prioritizes_blockers(local_database: dict[str, Any]) -> None:
+    from rls_doctor.postgres.overview import inspect_schema
+
+    report = inspect_schema(
+        local_database["dsn"], local_database["schema"], local_database["roles"]["reader"]
+    )
+    by_name = {t["resource"].split(".")[1]: t for t in report["tables"]}
+    assert report["result"] == "UNKNOWN"
+    assert by_name["default_deny"]["configuration"] == "BLOCKED"
+    assert by_name["composition"]["configuration"] == "NO_BASIC_BLOCKER"
+    assert all(t["runtime_visibility"] == "UNKNOWN" for t in report["tables"])
+    assert "synthetic-policy-secret-9102" not in json.dumps(report)
+    assert not report["truncated"]
+    assert report["tables"][0]["configuration"] == "BLOCKED"
+
+
+def test_real_schema_overview_limit_and_missing_schema(local_database: dict[str, Any]) -> None:
+    from rls_doctor.postgres.overview import inspect_schema
+
+    report = inspect_schema(
+        local_database["dsn"], local_database["schema"], local_database["roles"]["reader"], limit=1
+    )
+    assert report["truncated"] and len(report["tables"]) == 1
+    with pytest.raises(InspectorError) as caught:
+        inspect_schema(
+            local_database["dsn"],
+            "rlsd_missing_" + uuid4().hex[:12],
+            local_database["roles"]["reader"],
+        )
+    assert caught.value.code == "SCHEMA_NOT_FOUND"

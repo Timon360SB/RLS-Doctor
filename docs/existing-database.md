@@ -6,15 +6,42 @@ Use Python and uv for your PostgreSQL/Supabase database. No Docker, Node.js,
 fixture users or YAML scenarios are required. Node.js is needed only for optional
 application SDK integration.
 
+## Start with the assistant
+
+On Windows run `.\rls-doctor.cmd` from the checkout; it prepares the locked runtime.
+Other systems: `uv run --project python --python 3.12 --frozen --no-dev rls-doctor start`.
+First run uses separate connection fields, then shows the first report and a menu.
+Subsequent launches reuse the profile. Approval/password are requested once when
+needed; no connection is made just to switch language or close the menu. The menu
+can diagnose, select a different table/role for this session, show a schema overview,
+save the last report or forget session credentials. Profile selection is not silently overwritten.
+
+`connect` also uses separate fields. For a ready-made DSN use
+`connect --connection-string`; entry remains hidden. An explicitly configured
+RLS_DOCTOR_DATABASE_URL environment reference works as before. Use a direct/session
+endpoint supporting ordinary transactions; a Supabase API key is not a DB password.
+
+## Review a schema
+
+`rls-doctor overview` reuses the profile schema/role; override with `--schema` and
+`--role`. Default 30 tables, maximum `--limit 50`. One read-only snapshot summarizes
+grants, RLS applicability and default-deny. BLOCKED is a basic access obstacle;
+REVIEW means disabled/bypassed RLS or column-scoped SELECT; NO_BASIC_BLOCKER is not
+proof of runtime visibility. Complex predicates are not interpreted here.
+The table-name limit is applied before priority sorting and truncation is explicit.
+Only simple-name ordinary/partitioned tables are listed; other objects are omitted.
+A 30-second budget is checked between tables, in addition to per-query timeouts.
+JSON/output and approval rules match diagnose. No user rows are read.
+
 ## Guided connection and reuse
 
 ```powershell
-uv sync --project python --frozen
-uv run --project python rls-doctor connect
+uv run --project python --python 3.12 --frozen --no-dev rls-doctor connect
 ```
 
-Enter the database hostname/IP, approve catalog-only access, then paste a PostgreSQL
-DSN into the hidden prompt. Select a table and role by number. Optionally enter your
+Enter the database hostname/IP, approve catalog-only access, then fill in port,
+database, user, optional CA file and the hidden password. Use --connection-string
+for a ready-made DSN instead. Select a table and role by number. Optionally enter your
 Supabase API origin (HTTPS origin only, no paths, keys or query parameters).
 
 The wizard verifies read-only catalog access, inspects the selection and saves
@@ -121,9 +148,25 @@ multi-host DSNs are rejected. DNS pins the first IPv4 address, or the first othe
 address family; automatic connection failover is not implemented. The hostname
 remains available for certificate verification.
 
+## Troubleshoot an operational failure
+
+Errors include diagnosis ID/time, a fixed category and a next action. Follow the
+reported category: DNS, host/profile mismatch, unsupported connection settings,
+CA-file availability, client timeout or a server SQLSTATE. Common SQLSTATE values:
+42501 insufficient privilege, 28P01 password authentication rejection, 3D000 missing
+database, 57014 cancellation, 55P03 lock unavailable, 53300 connection limit and
+57P03 server not ready. No exact object names or server-message details are exported.
+
+A connection failure without SQLSTATE remains UNVERIFIED: the tool does not guess
+whether TLS, routing or credentials caused it. Check the approved endpoint/port,
+network, trusted certificates and private credential source. Keep verification on.
+See [troubleshooting](troubleshooting.md) for the machine-readable error structure.
+
 ## Results and export
 
-Reports include diagnosis ID/time, selected role, privileges, RLS/FORCE, policy
+All CLI reports include diagnosis_id and diagnosed_at (UTC). captured_at keeps
+the original request time separate; legacy timestamp fields remain compatible.
+Reports include the selected role, privileges, RLS/FORCE, policy
 shapes and ordered next actions. Captured-request time is separate. UNKNOWN runtime
 visibility does not hide established configuration blockers. connect/diagnose never
 change rows, policies or users, and never execute application queries/probes.

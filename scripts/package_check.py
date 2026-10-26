@@ -306,6 +306,14 @@ process.stdout.write(JSON.stringify(events[0]));
         raise DoctorError(
             "PACKAGE_DIAGNOSE", "Installed CLI is missing existing-database diagnosis."
         )
+    executable = python.parent / ("rls-doctor.exe" if os.name == "nt" else "rls-doctor")
+    for cmd in ("start", "overview", "connect"):
+        help_text = require_command([str(executable), cmd, "--help"], cwd=consumer).stdout
+        if "--language" not in help_text:
+            raise DoctorError("PACKAGE_ONBOARDING", "Installed onboarding command is unavailable.")
+    no_input = require_command([str(python), "-m", "rls_doctor"], cwd=consumer)
+    if "overview" not in no_input.stdout or "start" not in no_input.stdout:
+        raise DoctorError("PACKAGE_ONBOARDING", "Noninteractive installed entry point failed.")
     source_sdk = json.loads(
         (ROOT / "packages/capture-sdk/package.json").read_text(encoding="utf-8")
     )
@@ -389,6 +397,8 @@ void response; void acceptEvent; wrapped.stop();
             "installed-sdk-types",
             "installed-versions",
             "installed-diagnose-help",
+            "installed-onboarding-and-overview",
+            "installed-console-entrypoint",
             "installed-file-sink",
             "installed-event-contract",
             "installed-bound-event-contract",

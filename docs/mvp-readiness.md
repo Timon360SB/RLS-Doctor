@@ -1,3 +1,9 @@
+> MVP usability follow-up: start menu, runtime-only Windows launcher, separate
+> connection fields, reconnect, target/language selection, explicit export and
+> bounded schema overview are implemented. New isolated runtime/tool installs do
+> not substitute for clean-machine or independent human acceptance. The release
+> gates below remain open for the final committed revision.
+>
 > Current existing-database workflow: connect/diagnose, non-secret profiles, bound
 > schema 1.1 capture, opt-in Auth verification, narrow server-side policy shapes
 > and guided investigation are implemented. Real controlled TLS/least-privilege

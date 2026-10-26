@@ -36,12 +36,24 @@ lab/SDK capture and the optional detailed wizard support this primary workflow.
 - Retain UNKNOWN for unconfirmed runtime roles, incomplete results or undecidable
   policy behavior. Count-only scenarios do not establish row isolation.
 
+Implemented follow-up: fixed operational categories and safe SQLSTATE preservation,
+localized connection guidance, common report ID/time with separate capture time,
+real disabled-RLS and actually-empty-table regressions. The T01–T12 check mapping
+is maintained in development.md; no separate generated audit report is needed.
+
+Implemented MVP usability pass: runtime-only rls-doctor.cmd, start menu with scoped
+credential reuse, separate connection fields, reconnect, target/language selection
+and explicit export. Schema overview checks a bounded set of tables in one read-only
+snapshot, prioritizes basic blockers and retains UNKNOWN runtime visibility.
+Installed console entry points and a uv tool install were exercised in new isolated
+Windows environments without Node/Docker in PATH. This is not clean-machine evidence.
+
 ## P1 — release readiness (specification stage 7)
 
 - Local package installation checks now cover SDK archives and Python wheel,
   license/schema contents, installed types/file sink/CLI contract and preview
   checksums. Node 22/24 and Python 3.12/3.13 have local regression evidence.
-- Real PostgreSQL 16/18 compatibility runners execute eight guarded integration
+- Real PostgreSQL 16/18 compatibility runners execute eleven guarded integration
   tests per server and clean up only owned containers.
 - Reproduce onboarding on a clean Windows machine; the current launcher expects
   Docker, Node.js, pinned pnpm and uv and guides installation of missing prerequisites.

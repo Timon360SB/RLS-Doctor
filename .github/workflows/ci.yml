@@ -104,6 +104,10 @@ jobs:
           $parseErrors = $null
           [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'scripts/demo.ps1'), [ref]$tokens, [ref]$parseErrors) > $null
           if ($parseErrors.Count) { throw 'Windows launcher syntax check failed' }
+      - name: Start runtime-only existing-database launcher
+        run: .\rls-doctor.cmd --version
+      - name: Restore development dependencies after runtime-only launcher
+        run: uv sync --project python --frozen --group dev --python 3.13
       - name: Python unit, privacy, shared contract and process-lock tests
         run: uv run --project python pytest python/tests -m 'not integration'
 

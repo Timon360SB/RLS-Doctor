@@ -15,6 +15,7 @@ import tempfile
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import httpx
@@ -27,13 +28,20 @@ from postgres_matrix import command, docker_executable
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from rls_doctor.cli.main import app
-from rls_doctor.core.config import validate_database_dsn, validate_local_url
-from rls_doctor.core.credentials import credentials, local_status
+from rls_doctor.core.config import (
+    LocalEnvironment,
+    ProjectConfig,
+    validate_database_dsn,
+    validate_local_url,
+)
+from rls_doctor.core.credentials import credential_values, credentials, local_status
 from rls_doctor.core.database_connection import inspection_dsn
 from rls_doctor.core.errors import DoctorError
 from rls_doctor.core.models import parse_event
 from rls_doctor.core.profiles import DatabaseProfile, save_profile
 from rls_doctor.postgres.inspector import InspectorError, discover_database, inspect_table
+from rls_doctor.replay.runner import replay
+from rls_doctor.replay.scenarios import Scenario
 from typer.testing import CliRunner
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -264,14 +272,50 @@ def tls_check() -> None:
                     wizard_path = folder / ("wizard-" + language + ".json")
                     wizard = CliRunner().invoke(
                         app,
-                        ["connect", "--profile", str(wizard_path), "--language", language],
-                        input=f"localhost\ny\n{raw}\n{table_index}\n{role_index}\n\n",
+                        ["connect", "--profile", str(wizard_path), "--language", language]
+                        + (["--connection-string"] if language == "ru" else []),
+                        input=(
+                            f"localhost\ny\n{raw}\n{table_index}\n{role_index}\n\n"
+                            if language == "ru"
+                            else f"localhost\ny\n{port}\npostgres\nrls_reader\n"
+                            f"{folder / 'ca.crt'}\n{reader_password}\n"
+                            f"{table_index}\n{role_index}\n\n"
+                        ),
                     )
                     require(wizard.exit_code == 0, "DATABASE_CHECK_GUIDED_CONNECT")
                     require(
                         reader_password not in wizard.output + wizard_path.read_text(),
                         "DATABASE_CHECK_GUIDED_PRIVACY",
                     )
+                menu_report = folder / "menu-overview.json"
+                with credentials({"RLS_DOCTOR_DATABASE_URL": ""}):
+                    menu = CliRunner().invoke(
+                        app,
+                        ["start", "--profile", str(folder / "wizard-en.json")],
+                        input=f"1\ny\n{reader_password}\n2\n4\n{menu_report}\n5\n0\n",
+                    )
+                require(menu.exit_code == 0, "DATABASE_CHECK_START_MENU")
+                require(
+                    menu.output.count("Database password") == 1, "DATABASE_CHECK_SINGLE_PASSWORD"
+                )
+                exported = json.loads(menu_report.read_text())
+                require(
+                    exported["analysis_mode"] == "schema_catalog_overview",
+                    "DATABASE_CHECK_OVERVIEW_EXPORT",
+                )
+                require(
+                    exported["result"] == "UNKNOWN" and len(exported["tables"]) >= 3,
+                    "DATABASE_CHECK_OVERVIEW_TABLES",
+                )
+                require(
+                    reader_password not in menu.output + menu_report.read_text(),
+                    "DATABASE_CHECK_MENU_PRIVACY",
+                )
+                print(
+                    "PASS guided fields and advanced DSN, reusable session, "
+                    "schema overview and JSON export",
+                    flush=True,
+                )
                 profile = DatabaseProfile(
                     project_id=str(uuid4()),
                     host="localhost",
@@ -302,6 +346,44 @@ def tls_check() -> None:
                 print(
                     "PASS verified TLS, least-privilege catalogs, "
                     "private policy shapes and profile diagnosis",
+                    flush=True,
+                )
+
+                # A genuine server SQLSTATE, triggered only in this owned TLS container.
+                with psycopg.connect(admin, autocommit=True) as connection:
+                    connection.execute("REVOKE SELECT ON pg_catalog.pg_policy FROM PUBLIC")
+                    try:
+                        with credentials({"RLS_DOCTOR_DATABASE_URL": raw}):
+                            failure = CliRunner().invoke(
+                                app,
+                                [
+                                    "diagnose",
+                                    "public.documents",
+                                    "--host",
+                                    "localhost",
+                                    "--role",
+                                    "rls_reader",
+                                    "--approve-read-only",
+                                    "--format",
+                                    "json",
+                                ],
+                            )
+                        require(failure.exit_code == 3, "DATABASE_CHECK_PRIVILEGE_EXIT")
+                        detail = json.loads(failure.stdout)["error"]
+                        require(detail["sqlstate"] == "42501", "DATABASE_CHECK_PRIVILEGE_SQLSTATE")
+                        require(detail["phase"] == "catalog", "DATABASE_CHECK_PRIVILEGE_PHASE")
+                        require(
+                            detail["diagnostic"]["category"] == "insufficient_privilege",
+                            "DATABASE_CHECK_PRIVILEGE_ADVICE",
+                        )
+                        require(
+                            reader_password not in failure.stdout,
+                            "DATABASE_CHECK_PRIVILEGE_PRIVACY",
+                        )
+                    finally:
+                        connection.execute("GRANT SELECT ON pg_catalog.pg_policy TO PUBLIC")
+                print(
+                    "PASS actual SQLSTATE 42501 with catalog phase, guidance and no credentials",
                     flush=True,
                 )
 
@@ -363,6 +445,129 @@ def tls_check() -> None:
                     run(["rm", "--force", "--volumes", name])
 
 
+def sdk_capture(origin: str, key: str, token: str, project_id: str, resource: str) -> str:
+    node = os.environ.get("RLS_DOCTOR_NODE") or "node"
+    script = """
+import {createCaptureFetch} from './packages/capture-sdk/dist/index.js';
+let raw=''; for await (const chunk of process.stdin) raw+=chunk;
+const c=JSON.parse(raw);
+let resolve; const event=new Promise(r=>resolve=r);
+const wrapped=createCaptureFetch(fetch,{enabled:true,projectId:c.project,verifyAuth:true,
+ allowedOrigin:c.origin,resources:[c.resource],sink:resolve});
+const response=await wrapped(c.origin+'/rest/v1/'+c.resource+'?select=id',{
+ headers:{authorization:'Bearer '+c.token,apikey:c.key,Prefer:'count=exact'}});
+if(response.bodyUsed) throw Error('APPLICATION_BODY_CONSUMED');
+const timeout=new Promise((_,reject)=>setTimeout(()=>reject(Error('TIMEOUT')),5000));
+const captured=await Promise.race([event,timeout]);
+process.stdout.write(JSON.stringify(captured));
+"""
+    result = subprocess.run(
+        [node, "--input-type=module", "-e", script],
+        cwd=ROOT,
+        input=json.dumps(
+            {
+                "origin": origin,
+                "key": key,
+                "token": token,
+                "project": project_id,
+                "resource": resource,
+            }
+        ),
+        text=True,
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    require(result.returncode == 0, "DATABASE_CHECK_SDK_CAPTURE")
+    return result.stdout
+
+
+def empty_table_check(status: dict[str, Any], token: str, key: str) -> None:
+    origin = validate_local_url(status["API_URL"], [54321])
+    dsn = validate_database_dsn(status["DB_URL"], [54322])
+    name = "rls_doctor_empty_" + uuid4().hex[:12]
+    table = sql.Identifier("public", name)
+    created = False
+    try:
+        with psycopg.connect(dsn, autocommit=True) as connection:
+            connection.execute(sql.SQL("CREATE TABLE {} (id integer)").format(table))
+            created = True
+            connection.execute(sql.SQL("ALTER TABLE {} ENABLE ROW LEVEL SECURITY").format(table))
+            connection.execute(
+                sql.SQL(
+                    "CREATE POLICY allow_read ON {} FOR SELECT TO authenticated USING (true)"
+                ).format(table)
+            )
+            connection.execute(sql.SQL("GRANT SELECT ON {} TO authenticated").format(table))
+            count = connection.execute(sql.SQL("SELECT count(*) FROM {}").format(table)).fetchone()
+            require(count is not None and count[0] == 0, "DATABASE_CHECK_PHYSICALLY_EMPTY")
+            connection.execute("NOTIFY pgrst, 'reload schema'")
+        deadline = time.monotonic() + 15
+        ready = False
+        with httpx.Client(timeout=5, trust_env=False, follow_redirects=False) as client:
+            while time.monotonic() < deadline:
+                response = client.get(
+                    origin + "/rest/v1/" + name,
+                    headers={
+                        "apikey": key,
+                        "Authorization": "Bearer " + token,
+                        "Prefer": "count=exact",
+                    },
+                )
+                if response.status_code == 200:
+                    ready = True
+                    break
+                time.sleep(0.2)
+        require(ready, "DATABASE_CHECK_EMPTY_API_READY")
+        event = parse_event(json.loads(sdk_capture(origin, key, token, str(uuid4()), name)))
+        require(
+            event.response.status == 200 and event.response.row_count == 0,
+            "DATABASE_CHECK_EMPTY_CAPTURE",
+        )
+        env = LocalEnvironment(approved_local=True, resources=[name])
+        values = credential_values(status, env) | {"RLS_DOCTOR_TEST_TOKEN": token}
+        scenario = Scenario.model_validate(
+            {
+                "version": 1,
+                "name": "actual_empty_table",
+                "request": {"resource": name},
+                "identity": {"type": "authenticated", "token_env": "RLS_DOCTOR_TEST_TOKEN"},
+                "expect": {"status": 200, "row_count": 0},
+            }
+        )
+        with credentials(values):
+            report = replay(scenario, ProjectConfig(environment=env), event, inspect=True)
+        require(report["result"] == "PASS", "DATABASE_CHECK_EMPTY_EXPECTATION")
+        require(
+            report["identity"]["confirmed_role"] == "authenticated", "DATABASE_CHECK_EMPTY_ROLE"
+        )
+        require(report["inspector"]["privileges"]["table_select"], "DATABASE_CHECK_EMPTY_GRANT")
+        facts = {f["code"]: f for f in report["findings"]}
+        require(
+            facts["EMPTY_RESULT_AMBIGUOUS"]["evidence"] == "UNVERIFIED",
+            "DATABASE_CHECK_EMPTY_NOT_RLS_PROOF",
+        )
+        require(
+            not any(
+                c["code"] == "NO_PERMISSIVE_SELECT_POLICY"
+                for c in report["inspector"]["conclusions"]
+            ),
+            "DATABASE_CHECK_EMPTY_PERMISSIVE_POLICY",
+        )
+        print(
+            (
+                "PASS T08: genuinely empty allowed table, SDK capture and replay; "
+                "RLS cause remains unverified"
+            ),
+            flush=True,
+        )
+    finally:
+        if created:
+            with psycopg.connect(dsn, autocommit=True) as connection:
+                connection.execute(sql.SQL("DROP TABLE {}").format(table))
+                connection.execute("NOTIFY pgrst, 'reload schema'")
+
+
 def auth_check(workdir: Path) -> None:
     require(os.environ.get("RLS_DOCTOR_ALLOW_FIXTURE_SETUP") == "1", "DATABASE_CHECK_AUTH_APPROVAL")
     status = local_status(workdir)
@@ -386,43 +591,19 @@ def auth_check(workdir: Path) -> None:
             user_id, token = data["user"]["id"], data["access_token"]
         require(isinstance(token, str) and isinstance(user_id, str), "DATABASE_CHECK_AUTH_SESSION")
         project_id = str(uuid4())
-        node = os.environ.get("RLS_DOCTOR_NODE") or "node"
-        script = """
-import {createCaptureFetch} from './packages/capture-sdk/dist/index.js';
-let raw=''; for await (const chunk of process.stdin) raw+=chunk;
-const c=JSON.parse(raw);
-let resolve; const event=new Promise(r=>resolve=r);
-const wrapped=createCaptureFetch(fetch,{enabled:true,projectId:c.project,verifyAuth:true,
- allowedOrigin:c.origin,resources:['documents'],sink:resolve});
-const response=await wrapped(c.origin+'/rest/v1/documents?select=id',{
- headers:{authorization:'Bearer '+c.token,apikey:c.key,Prefer:'count=exact'}});
-if(response.bodyUsed) throw Error('APPLICATION_BODY_CONSUMED');
-const timeout=new Promise((_,reject)=>setTimeout(()=>reject(Error('TIMEOUT')),5000));
-const captured=await Promise.race([event,timeout]);
-process.stdout.write(JSON.stringify(captured));
-"""
-        result = subprocess.run(
-            [node, "--input-type=module", "-e", script],
-            cwd=ROOT,
-            input=json.dumps({"origin": origin, "key": key, "token": token, "project": project_id}),
-            text=True,
-            capture_output=True,
-            timeout=20,
-            check=False,
-        )
-        require(result.returncode == 0, "DATABASE_CHECK_SDK_CAPTURE")
+        captured_json = sdk_capture(origin, key, token, project_id, "documents")
         require(
-            token not in result.stdout
-            and key not in result.stdout
-            and user_id not in result.stdout,
+            token not in captured_json
+            and key not in captured_json
+            and user_id not in captured_json,
             "DATABASE_CHECK_AUTH_PRIVACY",
         )
-        event = parse_event(json.loads(result.stdout))
+        event = parse_event(json.loads(captured_json))
         require(event.auth_check == "verified_user", "DATABASE_CHECK_AUTH_CONFIRMATION")
         with tempfile.TemporaryDirectory(prefix="rls-doctor-auth-") as directory:
             folder = Path(directory)
             path = folder / "event.json"
-            path.write_text(result.stdout, encoding="utf-8")
+            path.write_text(captured_json, encoding="utf-8")
             values = conninfo_to_dict(dsn)
             profile = DatabaseProfile(
                 project_id=project_id,
@@ -461,6 +642,7 @@ process.stdout.write(JSON.stringify(captured));
             "PASS actual Supabase SDK/Auth v1.1 capture and bound database investigation",
             flush=True,
         )
+        empty_table_check(status, token, key)
     finally:
         if user_id:
             # Only the synthetic user created by this check, never application rows.

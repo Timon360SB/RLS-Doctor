@@ -2,6 +2,7 @@
 
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -9,16 +10,19 @@ import httpx
 import typer
 
 from rls_doctor import __version__
+from rls_doctor.cli.connection import profile_dsn
 from rls_doctor.cli.project import connect_project, follow_up
 from rls_doctor.cli.session import run_session
+from rls_doctor.cli.start import run_start
 from rls_doctor.cli.wizard import guided_files, initialize
 from rls_doctor.core.config import load_config
-from rls_doctor.core.database_connection import inspection_dsn
+from rls_doctor.core.database_connection import inspection_dsn, validate_database_host
 from rls_doctor.core.errors import DoctorError
 from rls_doctor.core.models import load_event
 from rls_doctor.core.profiles import load_profile
 from rls_doctor.identity.validation import bounded_json, local_headers
 from rls_doctor.postgres.inspector import InspectorError, doctor_database, inspect_table
+from rls_doctor.postgres.overview import inspect_schema
 from rls_doctor.replay.runner import replay as run_replay
 from rls_doctor.replay.scenarios import load_scenario
 from rls_doctor.reports.capture import capture_report
@@ -26,9 +30,11 @@ from rls_doctor.reports.console import Language, render, word
 from rls_doctor.reports.database import database_capture_report, validate_capture_table
 from rls_doctor.reports.files import available, write_report
 from rls_doctor.reports.investigation import investigate
+from rls_doctor.reports.metadata import complete_report
+from rls_doctor.reports.operational import CONFIG, database_error_details, enrich_error
 
 app = typer.Typer(
-    no_args_is_help=True,
+    no_args_is_help=False,
     pretty_exceptions_enable=False,
     help="Read-only PostgreSQL/Supabase access diagnostics and optional local scenario checks.",
     epilog="Documentation: https://github.com/Timon360SB/RLS-Doctor#documentation",
@@ -79,6 +85,7 @@ OutputPath = Annotated[
 def finish(
     report: dict[str, Any], format: Format, language: Language = "en", output: Path | None = None
 ) -> None:
+    complete_report(report)
     if output is not None:
         try:
             write_report(report, output)
@@ -108,13 +115,18 @@ def fail(
             "EXECUTION_ERROR",
             "Diagnostic execution failed; no untrusted error details were retained.",
         )
-    finish(
-        {"result": "ERROR", "error": {"code": code, "message": message}}, format, language, output
-    )
+    error: dict[str, Any] = {"code": code, "message": message}
+    if isinstance(exc, InspectorError):
+        error = database_error_details(exc)
+    if isinstance(exc, (DoctorError, InspectorError)) and exc.detail_code in CONFIG:
+        error["detail_code"] = exc.detail_code
+    finish({"result": "ERROR", "error": enrich_error(error)}, format, language, output)
 
 
 @app.callback(invoke_without_command=True)
 def entrypoint(
+    ctx: typer.Context,
+    language: OutputLanguage = "en",
     version: Annotated[
         bool, typer.Option("--version", is_eager=True, help="Show installed CLI version.")
     ] = False,
@@ -122,6 +134,97 @@ def entrypoint(
     if version:
         typer.echo("RLS Doctor " + __version__)
         raise typer.Exit(0)
+    if ctx.invoked_subcommand is None:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            typer.echo(ctx.get_help())
+            raise typer.Exit(0)
+        start(language=language)
+
+
+@app.command()
+def start(
+    profile: Annotated[Path, typer.Option("--profile", help="Non-secret database profile.")] = Path(
+        ".rls-doctor/project.json"
+    ),
+    language: OutputLanguage = "en",
+    once: Annotated[
+        bool,
+        typer.Option(
+            "--once", help="Run one guided diagnosis and exit; preserve UNKNOWN exit code."
+        ),
+    ] = False,
+) -> None:
+    """Start here: connect once, diagnose, review other tables and export results."""
+    try:
+        code = run_start(profile, language, once=once)
+    except (typer.Abort, KeyboardInterrupt):
+        if once:
+            fail(
+                DoctorError("DATABASE_CANCELLED", "Single diagnosis was cancelled."),
+                "console",
+                language,
+            )
+            return
+        typer.echo(
+            word(
+                language,
+                "Session closed; no access outcome established.",
+                "Сессия закрыта; результат доступа не установлен.",
+            )
+        )
+        raise typer.Exit(0) from None
+    except Exception as exc:
+        fail(exc, "console", language)
+        return
+    raise typer.Exit(code)
+
+
+@app.command()
+def overview(
+    profile: Annotated[Path, typer.Option("--profile", help="Saved database profile.")] = Path(
+        ".rls-doctor/project.json"
+    ),
+    schema: Annotated[
+        str | None,
+        typer.Option("--schema", help="Schema to inspect; defaults to the profile table's schema."),
+    ] = None,
+    role: Annotated[
+        str | None, typer.Option("--role", help="Requested role; defaults to the profile role.")
+    ] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", min=1, max=50, help="Maximum tables per snapshot.")
+    ] = 30,
+    approve_read_only: Annotated[bool, typer.Option("--approve-read-only")] = False,
+    format: OutputFormat = "console",
+    output: OutputPath = None,
+    language: OutputLanguage = "en",
+) -> None:
+    """Review a schema's table grants and RLS in one read-only catalog snapshot."""
+    try:
+        available(output)
+        saved = load_profile(profile)
+        schema = schema or saved.table.split(".")[0]
+        role = role or saved.role
+        if any(
+            re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", name) is None for name in (schema, role)
+        ):
+            raise DoctorError("INVALID_IDENTIFIER", "Use simple schema and role identifiers.")
+        dsn = profile_dsn(
+            saved, language, approved=approve_read_only, interactive=format == "console"
+        )
+        report = inspect_schema(dsn, schema, role, limit)
+    except (typer.Abort, KeyboardInterrupt):
+        fail(
+            DoctorError("DATABASE_CANCELLED", "Schema overview cancelled."),
+            format,
+            language,
+            output,
+        )
+        return
+    except Exception as exc:
+        fail(exc, format, language, output)
+        return
+    finish(report, format, language, output)
 
 
 @app.command()
@@ -356,10 +459,19 @@ def connect(
         Path, typer.Option("--profile", help="Save a new non-secret project profile.")
     ] = Path(".rls-doctor/project.json"),
     language: OutputLanguage = "en",
+    connection_string: Annotated[
+        bool,
+        typer.Option(
+            "--connection-string",
+            help="Advanced: paste a hidden DSN instead of entering separate connection fields.",
+        ),
+    ] = False,
 ) -> None:
     """Connect an existing database and choose table/role; never save credentials."""
     try:
-        report = investigate(connect_project(profile, language))
+        report = investigate(
+            connect_project(profile, language, connection_string=connection_string)
+        )
     except (typer.Abort, KeyboardInterrupt):
         fail(DoctorError("DATABASE_CANCELLED", "Connection setup cancelled."), "console", language)
         return
@@ -416,7 +528,7 @@ def diagnose(
         )
         saved = load_profile(profile_path) if profile_path else None
         if saved is not None:
-            if host is not None and host != saved.host:
+            if host is not None and host.lower() != saved.host.lower():
                 raise DoctorError(
                     "PROJECT_CONNECTION_MISMATCH", "Host differs from the saved project."
                 )
@@ -427,6 +539,7 @@ def diagnose(
             raise DoctorError(
                 "PROJECT_REQUIRED", "Run rls-doctor connect first, or provide table and --host."
             )
+        validate_database_host(host)
         parts = table.split(".")
         if len(parts) != 2 or any(
             not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]{0,62}", p) for p in [*parts, role]

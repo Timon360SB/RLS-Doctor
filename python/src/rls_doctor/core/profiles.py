@@ -84,8 +84,11 @@ class DatabaseProfile(StrictModel):
 
     def check_connection(self, dsn: str) -> None:
         values = conninfo_to_dict(dsn)
+        connection_host = values.get("host")
+        if isinstance(connection_host, str):
+            values["host"] = connection_host.lower()
         expected = {
-            "host": self.host,
+            "host": self.host.lower(),
             "port": str(self.port),
             "dbname": self.database,
             "user": self.user,

@@ -271,7 +271,11 @@ def test_json_session_is_clean_and_preserves_exit_codes(
         app, ["session", "--run", "--format", "json", "--language", language]
     )
     assert result.exit_code == code
-    assert json.loads(result.stdout) == {"result": outcome}
+    report = json.loads(result.stdout)
+    assert report["result"] == outcome
+    assert set(report) == {"result", "report_version", "diagnosis_id", "diagnosed_at"}
+    assert report["report_version"] == "1.0"
+    assert report["diagnosis_id"] and report["diagnosed_at"]
     assert "PRIVATE" not in result.stdout
 
 
